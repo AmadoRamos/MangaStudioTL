@@ -57,6 +57,7 @@ from src.views.zoomed_canvas import (
     MAX_EFFECTIVE_SCALE,
     MIN_EFFECTIVE_SCALE,
     TALL_PAGE_FIT_LIMIT,
+    WHEEL_PAN_STEP,
     ZOOM_STEP,
     resample_for,
 )
@@ -330,6 +331,10 @@ class MarksView(tk.Frame):
             "v", lambda: self._set_clean_mode(not self._viewing_clean),
         )
         self.bind_all("<Delete>", lambda _e: self._delete_from_key())
+        # Aquí y no en el constructor de la tira: ese solo se ejecuta al
+        # entrar en «Todas», así que la vista arrancaba en «Una» sin
+        # ningún enganche de rueda.
+        self.bind_all("<MouseWheel>", self._mousewheel)
         for sequence, dx, dy in (
             ("<Left>", -1, 0), ("<Right>", 1, 0),
             ("<Up>", 0, -1), ("<Down>", 0, 1),
@@ -1160,7 +1165,6 @@ class MarksView(tk.Frame):
         self._canvas.bind("<ButtonRelease-2>", self._strip_pan_release)
         self._canvas.bind("<Control-MouseWheel>", self._strip_ctrl_wheel)
         self._canvas.bind("<Configure>", self._strip_configure)
-        self._canvas.bind_all("<MouseWheel>", self._strip_mousewheel)
 
         self._marks_canvas = None
         self._strip_photos = {}
@@ -1474,11 +1478,35 @@ class MarksView(tk.Frame):
         iy = int(round((sy - y0) / self._strip_scale))
         return img_idx, max(0, min(ix, iw)), max(0, min(iy, ih))
 
-    def _strip_mousewheel(self, event: tk.Event) -> None:
-        if self._edit_state or self._mode != MODE_ALL or self._canvas is None:
+    def _mousewheel(self, event: tk.Event) -> None:
+        """La rueda de los dos modos, porque los dos llegan aquí.
+
+        Lo que bloquea no es el modo de edición sino el arrastre: mover
+        el papel mientras se dibuja un rectángulo lo estropea, pero entre
+        marca y marca la rueda tiene que funcionar como siempre.
+
+        En «Una» se desplaza si hay a dónde y, cuando la página cabe
+        entera, se pasa de página — que es lo que la rueda significa en
+        un lector de cómic. Este manejador hace el desplazamiento él
+        mismo en vez de dejárselo al lienzo: en Tk 8.6 la rueda va al
+        widget con el foco, y el foco lo tiene el marco de la vista, así
+        que no está dicho que el enganche del lienzo llegue a ejecutarse.
+        Si llega, devolvió «break» y esto ni se ejecuta.
+        """
+        if self._drag is not None:
             return
-        delta = -1 if event.delta > 0 else 1
-        self._canvas.yview_scroll(delta, "units")
+        up = event.delta > 0
+        if self._mode == MODE_ALL:
+            if self._canvas is not None:
+                self._canvas.yview_scroll(-1 if up else 1, "units")
+            return
+        canvas = self._marks_canvas
+        if canvas is None:
+            return
+        if canvas.can_pan_y():
+            canvas.pan_by(0, WHEEL_PAN_STEP if up else -WHEEL_PAN_STEP)
+            return
+        self._on_prev() if up else self._on_next()
 
     def _hit_test_image(self, strip_y: float) -> int | None:
         for idx, (_, y0, _, sh) in enumerate(self._strip_layout):

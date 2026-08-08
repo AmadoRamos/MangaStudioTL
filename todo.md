@@ -9,45 +9,32 @@ funcionamiento del flujo, en [README.md](README.md).
 
 ---
 
-## 1 · Paso 2 (Marcar) · la rueda no desplaza mientras se marca
+## 1 · La rueda tiene dos dueños globales
 
-**Qué.** Con el modo de edición encendido —o sea, justo mientras se están
-añadiendo marcas— la rueda del ratón no mueve la imagen. Hay que apagar la
-edición, desplazarse y volver a encenderla.
+**Qué.** Nadie lo ha reportado; salió al arreglar la rueda del paso 2 y se
+anota antes de que se olvide.
 
-**Estado actual.** Son dos huecos distintos, uno por cada modo de la vista:
+**Estado actual.** `<MouseWheel>` se ata con `bind_all`, que en Tk escribe en
+la etiqueta `all` y **solo admite un script por secuencia**. Hay dos que la
+quieren: `marks_view.py` (`_bind_keys`) y el riel, que se la queda al pasar
+el puntero por encima —[`sidebar.py:349`](src/views/sidebar.py:349)— guardando
+el script anterior en `_prev_wheel` y devolviéndolo al salir.
 
-- **«Todas» (la tira).** `marks_view.py:1176` engancha la rueda con `bind_all`,
-  y el manejador `_strip_mousewheel` (`marks_view.py:1490`) se sale en la
-  primera línea si `self._edit_state` está activo. La condición es literalmente
-  «mientras marcas, no desplaces».
-- **«Una» (página suelta).** La rueda la atiende `ZoomedCanvas._on_wheel`
-  (`zoomed_canvas.py:493`), que sí funciona con la edición encendida, pero
-  devuelve `None` sin hacer nada cuando `can_pan_y()` es falso —es decir,
-  cuando la página cabe entera en el lienzo. Y el respaldo de `bind_all`
-  tampoco actúa, porque también se sale si el modo no es `MODE_ALL`. Resultado:
-  la rueda no hace absolutamente nada.
+El fallo está en ese ir y venir: si entre el `<Enter>` y el `<Leave>` la vista
+se destruye —entrar al riel, pulsar un paso, salir del riel—, `_release_wheel`
+reinstala el script de una vista que ya no existe, cuyo comando Tk borró en el
+`unbind_all` de `MarksView.destroy`. La siguiente rueda da error de Tcl.
 
-**Dónde.**
+**A decidir.** Lo obvio —que cada lienzo se ate su propia rueda y se acabe la
+etiqueta global— **puede romper el desplazamiento entero**: en Tk 8.6 sobre
+Windows la rueda va al widget con el **foco de teclado**, no al que está bajo
+el puntero, y el foco lo tiene el marco de la vista
+([`marks_view.py:345`](src/views/marks_view.py:345)), no ningún lienzo. Eso
+explicaría por qué el enganche de `ZoomedCanvas` no bastaba. Antes de tocar
+nada hay que comprobar cuál de las dos entregas ocurre de verdad.
 
-- `src/views/marks_view.py:1490` — la condición del manejador.
-- `src/views/marks_view.py:1176` — el `bind_all`.
-- `src/views/zoomed_canvas.py:493` — el caso de «no hay nada que desplazar».
-
-**A decidir.**
-
-- ¿Por qué bloquea la edición? Lo razonable sería no mover la tira **en medio
-  de un arrastre**, que es cuando el desplazamiento estropearía el rectángulo
-  que se está dibujando. *Propuesta: condicionarlo al arrastre en curso*, no al
-  modo de edición entero.
-- En «Una», cuando la página cabe y no hay nada que desplazar, ¿la rueda pasa a
-  la página anterior o siguiente? Es lo que la rueda significa en un lector de
-  cómic. *Propuesta: sí.*
-- `bind_all` es una atadura global: se dispara para cualquier widget de la
-  aplicación. `sidebar.py:348` ya guarda y restaura el enganche anterior para
-  convivir con este, señal de que hay dos manejadores globales disputándose la
-  rueda. Conviene decidir si la tira se engancha a su propio lienzo y se acaba
-  la disputa.
+*Propuesta: dejar `bind_all` y que el riel deje de guardar y restaurar; que
+haya un único despachador que mire dónde está el puntero.*
 
 ---
 
@@ -95,6 +82,24 @@ desaparece. Debería continuar en otra línea.
 ---
 
 ## Hecho
+
+- **Paso 2 · la rueda mientras se marca** — lo que la bloqueaba era el modo de
+  edición entero; ahora la bloquea `self._drag`, o sea el arrastre en curso,
+  que es el único momento en que desplazar estropea algo: el rectángulo que se
+  está dibujando. El atributo ya existía, así que el arreglo del síntoma
+  reportado era una condición. Debajo había dos cosas más. Una, que en «Una» la
+  rueda no hacía nada aunque hubiera de sobra que desplazar: el `bind_all`
+  vivía **dentro del constructor de la tira**, que solo se ejecuta al entrar en
+  «Todas», así que la vista arrancaba —en «Una», que es el modo inicial— sin
+  ningún enganche de rueda. Subió a `_bind_keys`, junto a las demás teclas
+  globales. Dos, que la explicación que traía el apartado —«la atiende
+  `ZoomedCanvas._on_wheel`»— es dudosa: en Tk 8.6 sobre Windows la rueda va al
+  widget con el foco de teclado, y el foco lo tiene el marco de la vista, no el
+  lienzo. El despachador desplaza él mismo en vez de delegar, con lo que
+  funciona bajo las dos lecturas: si el lienzo llegó a atenderla, devolvió
+  «break» y esto no se ejecuta. Y cuando la página cabe entera, la rueda pasa
+  de página —lo que significa en un lector de cómic—, apoyándose en `_on_prev`
+  / `_on_next`, que ya se guardaban de salirse del rango.
 
 - **Fuera la variante `secondary`** — el apartado pedía revisar nueve botones
   «por si acaso» estaban sobre el riel sin contenedor con borde. Estaban los

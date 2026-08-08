@@ -141,6 +141,75 @@ def test_button_variants() -> None:
             assert name in _VARIANTS, f"{path}: variante «{name}»"
 
 
+def test_marks_wheel() -> None:
+    """La rueda del paso 2: lo que la bloquea es el arrastre, no el modo.
+
+    Sin construir la vista —solo hacen falta los cuatro atributos que el
+    manejador toca— porque montar `MarksView` pide imágenes, OCR y riel.
+    """
+    from src.views.marks_view import MODE_ALL, MODE_ONE, MarksView
+
+    class Event:
+        def __init__(self, delta: int) -> None:
+            self.delta = delta
+
+    class Strip:
+        def __init__(self) -> None:
+            self.scrolled: list[int] = []
+
+        def yview_scroll(self, amount: int, _what: str) -> None:
+            self.scrolled.append(amount)
+
+    class Page:
+        def __init__(self, pannable: bool) -> None:
+            self.pannable = pannable
+            self.panned: list[float] = []
+
+        def can_pan_y(self) -> bool:
+            return self.pannable
+
+        def pan_by(self, _dx: float, dy: float) -> None:
+            self.panned.append(dy)
+
+    view = MarksView.__new__(MarksView)
+    view._drag = None
+    view._items = [object(), object(), object()]
+    view._index = 1
+    view._selected = None
+    view._load_current = lambda: None  # type: ignore[method-assign]
+
+    # «Todas»: la rueda recorre la tira…
+    view._mode = MODE_ALL
+    view._marks_canvas = None
+    strip = view._canvas = Strip()
+    view._mousewheel(Event(120))
+    assert strip.scrolled == [-1], strip.scrolled
+
+    # …salvo en medio de un arrastre, que es lo único que la para.
+    view._drag = {"preview_id": 1}
+    view._mousewheel(Event(120))
+    assert strip.scrolled == [-1], "el arrastre no bloqueó la rueda"
+    view._drag = None
+
+    # «Una» con la página ampliada: desplaza y no cambia de página.
+    view._mode = MODE_ONE
+    view._canvas = None
+    page = view._marks_canvas = Page(pannable=True)
+    view._mousewheel(Event(-120))
+    assert page.panned and view._index == 1, (page.panned, view._index)
+
+    # «Una» con la página entera a la vista: pasa de página y para en el
+    # extremo, que es de lo que ya se guardan _on_prev / _on_next.
+    view._marks_canvas = Page(pannable=False)
+    view._mousewheel(Event(-120))
+    assert view._index == 2, view._index
+    view._mousewheel(Event(-120))
+    assert view._index == 2, "se salió por el final"
+    for _ in range(3):
+        view._mousewheel(Event(120))
+    assert view._index == 0, "se salió por el principio"
+
+
 def test_box_precedence() -> None:
     """The section beats the chapter, and ``None`` means «sin tocar»."""
     mark = Mark(x=10, y=20, w=200, h=80, color="#ec3013")
@@ -311,6 +380,7 @@ if __name__ == "__main__":
         test_drop_data_splitting(root)
         test_dialog_answers(root)
         test_button_variants()
+        test_marks_wheel()
         test_box_precedence()
         test_profile_layer()
         test_rect_geometry()

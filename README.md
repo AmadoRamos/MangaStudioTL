@@ -142,7 +142,11 @@ Tres reglas que valen para los cuatro pasos:
   escala igual que una página suelta y **las páginas van centradas**
   sobre el mismo eje, aunque el capítulo mezcle anchos distintos
 - **Desplazamiento** con la rueda (vertical), `Shift + rueda`
-  (horizontal), el botón central o `Shift + clic y arrastrar`
+  (horizontal), el botón central o `Shift + clic y arrastrar`. La rueda
+  funciona **con el modo de edición encendido**: lo único que la para es
+  un arrastre en curso, porque mover el papel mientras se dibuja el
+  rectángulo lo estropea. En modo **Una**, cuando la página cabe entera y
+  no hay nada que desplazar, la rueda **pasa de página**
 - El encuadre inicial se elige solo: las páginas normales entran
   completas y las tiras de webtoon —760 × 15 000 px, que a ventana
   completa quedarían al 5 %— se abren ajustadas al ancho y por arriba
@@ -555,7 +559,7 @@ Zoom:
 | Acción | Efecto |
 |--------|--------|
 | `Ctrl + rueda` | Zoom centrado en el cursor (5 % – 800 %) |
-| `rueda` | Desplazar en vertical |
+| `rueda` | Desplazar en vertical; en **Una**, pasar de página si no hay nada que desplazar |
 | `Shift + rueda` | Desplazar en horizontal |
 | Botón central, o `Shift + clic y arrastrar` | Mover la vista |
 | Botón `−` / `+` | Alejar / acercar sobre el centro |
