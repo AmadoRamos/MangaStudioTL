@@ -232,9 +232,9 @@ def opt_offset(raw: Any) -> tuple[int, int, int, int] | None:
 class TranslationEntry:
     """Translation result stored next to a mark.
 
-    ``color``, ``font_family``, ``max_pt``, ``bold`` and ``italic`` are
-    the per-section overrides, and they are ``None`` when nobody touched
-    them. That is not the same as «puesto igual que el valor por
+    ``color``, ``font_family``, ``max_pt``, ``bold``, ``italic`` and the
+    two ``stroke_*`` are the per-section overrides, and they are ``None``
+    when nobody touched them. That is not the same as «puesto igual que el valor por
     defecto»: the difference is what lets the assigned text profile fill
     in the untouched fields without overwriting the ones the user chose.
 
@@ -259,6 +259,10 @@ class TranslationEntry:
     max_pt: int | None = None
     bold: bool | None = None
     italic: bool | None = None
+    #: Cero no es «sin tocar»: es «esta sección va sin contorno aunque su
+    #: perfil lleve uno». El «sin tocar» sigue siendo ``None``.
+    stroke_width: int | None = None
+    stroke_color: tuple[int, int, int] | None = None
     profile: str | None = None
     box_offset: tuple[int, int, int, int] | None = None
 
@@ -283,6 +287,8 @@ class TranslationEntry:
             # ``false`` es «esta sección va en redonda pase lo que pase».
             bold=opt_bool(data.get("bold")),
             italic=opt_bool(data.get("italic")),
+            stroke_width=opt_int(data.get("stroke_width")),
+            stroke_color=opt_color(data.get("stroke_color")),
             profile=(str(data["profile"]) if data.get("profile") else None),
             box_offset=opt_offset(data.get("box_offset")),
         )

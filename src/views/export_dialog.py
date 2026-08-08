@@ -1,12 +1,15 @@
-"""The «Finalizar y exportar» dialog.
+"""The «Finalizar y exportar» dialog, and the window that follows it.
 
 States the destination, exactly what will be written and what will be
 skipped, and only then offers the button that writes it — the order the
-mockups use for every confirmation.
+mockups use for every confirmation. :class:`ExportProgress` is what the
+user then watches: la exportación bloquea la interfaz, y sin ella un
+capítulo largo se lee como una aplicación colgada.
 """
 
 from __future__ import annotations
 
+import time
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog
@@ -152,6 +155,90 @@ class ExportDialog(tk.Toplevel):
         self._close()
 
     def _close(self) -> None:
+        try:
+            self.grab_release()
+        except Exception:
+            pass
+        self.destroy()
+
+
+class ExportProgress(tk.Toplevel):
+    """En qué página va la exportación, cuánto lleva y cuánto le queda.
+
+    ``step`` tiene la firma de ``on_progress`` del exportador, así que se
+    le pasa tal cual. El exportador corre en el hilo de la interfaz, y por
+    eso aquí se repinta con ``update_idletasks``: dibuja sin procesar
+    clics, así que nadie puede lanzar una segunda exportación encima de
+    la primera. — *saltado: exportar en un hilo con botón de cancelar;
+    añadir si a alguien le hace falta parar un capítulo a medias.*
+    """
+
+    def __init__(self, master: tk.Misc, total: int) -> None:
+        super().__init__(master, bg=COLOR_BG)
+        self.title("Exportando")
+        self.transient(master.winfo_toplevel())
+        self.resizable(False, False)
+        self.configure(
+            highlightthickness=2,
+            highlightbackground=COLOR_TEXT, highlightcolor=COLOR_TEXT,
+        )
+        # La cruz no cancela nada: el exportador no sabe parar a mitad, y
+        # una ventana que se va sin detenerlo mentiría.
+        self.protocol("WM_DELETE_WINDOW", lambda: None)
+
+        header = tk.Frame(self, bg=COLOR_BG, padx=18, pady=16)
+        header.pack(fill=tk.X)
+        theme.heading(header, "Exportando", size=15).pack(fill=tk.X)
+        theme.rule(self, thickness=2, color=COLOR_TEXT).pack(fill=tk.X)
+
+        body = tk.Frame(self, bg=COLOR_BG, padx=18, pady=16)
+        body.pack(fill=tk.BOTH, expand=True)
+        self._page = theme.body(body, "", size=10, weight="bold")
+        self._page.pack(fill=tk.X, pady=(0, 9))
+        self._meter = theme.Meter(body, height=6)
+        self._meter.pack(fill=tk.X, pady=(0, 9))
+        foot = tk.Frame(body, bg=COLOR_BG)
+        foot.pack(fill=tk.X)
+        self._count = theme.body(foot, "", size=9, fg=NEUTRAL_600)
+        self._count.pack(side=tk.LEFT)
+        self._eta = theme.body(foot, "", size=9, fg=NEUTRAL_600)
+        self._eta.pack(side=tk.RIGHT)
+
+        self._started = time.monotonic()
+        self.step(0, total, Path(""))
+        theme.center_on(self, master, DIALOG_WIDTH)
+        self.grab_set()
+
+    def step(self, done: int, total: int, path: Path) -> None:
+        """*done* páginas terminadas; *path* es la que empieza ahora."""
+        self._page.configure(
+            text=path.name or ("Preparando…" if done < total else "Terminando…"),
+        )
+        self._meter.set(done / total if total else 1.0)
+        percent = int(done / total * 100) if total else 100
+        self._count.configure(
+            text=f"Página {min(done + 1, total)} de {total} · {percent} %",
+        )
+        self._eta.configure(text=self._eta_text(done, total))
+        self.update_idletasks()
+
+    def _eta_text(self, done: int, total: int) -> str:
+        """Lo que falta, medido con lo que ya tardó.
+
+        Una media simple: las páginas de un capítulo pesan parecido y se
+        corrige sola en cada una. Con cero hechas no hay nada con qué
+        medir, y decir un número inventado es peor que no decirlo.
+        """
+        if done <= 0:
+            return "calculando…"
+        if done >= total:
+            return ""
+        left = (time.monotonic() - self._started) / done * (total - done)
+        if left < 60:
+            return f"queda ~{max(1, int(left))} s"
+        return f"queda ~{int(left // 60)} min {int(left % 60):02d} s"
+
+    def close(self) -> None:
         try:
             self.grab_release()
         except Exception:

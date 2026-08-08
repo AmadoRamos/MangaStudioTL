@@ -32,6 +32,7 @@ from src.config import (
     TEXT_COLOR_PRESETS,
     TEXT_RENDER_DEFAULT_COLOR,
     TEXT_RENDER_FALLBACK_FAMILIES,
+    TEXT_RENDER_STROKE_MAX_PX,
     TEXT_RENDER_USER_MAX_PT_MAX,
     TEXT_RENDER_USER_MAX_PT_MIN,
     TRANSLATION_DIR_NAME,
@@ -41,7 +42,12 @@ from src.utils.inpainter import find_clean, has_clean
 from src.utils.logger import get_logger
 from src.utils import text_profiles
 from src.utils.marks_store import MarksStore, TranslationEntry
-from src.utils.text_profiles import TextProfile
+from src.utils.text_profiles import (
+    NO_PROFILE,
+    STYLE_FIELDS,
+    TextProfile,
+    validate_name,
+)
 from src.utils.text_renderer import (
     RenderConfig,
     box_rect,
@@ -50,9 +56,14 @@ from src.utils.text_renderer import (
     resolve_style,
 )
 from src.views import theme
-from src.views.export_dialog import ExportDialog
+from src.views.export_dialog import ExportDialog, ExportProgress
+from src.views.profile_dialog import ProfileDialog
 from src.views.toolbar import StatusBar
-from src.views.translator_canvas import TranslatorCanvas, _rgb_to_hex
+from src.views.translator_canvas import (
+    TranslatorCanvas,
+    _rgb_to_hex,
+    _stroke_text,
+)
 
 log = get_logger("render_view")
 
@@ -60,9 +71,6 @@ log = get_logger("render_view")
 MB_PER_PAGE = 1.3
 #: Quiet time before what was typed in the rail reaches the page.
 TEXT_ECHO_MS = 220
-#: The «no profile» row of the selector. Not a profile name: a section
-#: with no profile falls straight through to the chapter defaults.
-NO_PROFILE = "(ninguno)"
 
 
 class RenderView(tk.Frame):
@@ -104,6 +112,9 @@ class RenderView(tk.Frame):
         self._style_note_holder: tk.Frame | None = None
         self._style_note: tk.Label | None = None
         self._swatch_row: tk.Frame | None = None
+        self._stroke_var: tk.IntVar | None = None
+        self._stroke_label: tk.Label | None = None
+        self._stroke_swatches: tk.Frame | None = None
         self._text_after_id: str | None = None
 
         self._build_ui()
@@ -197,6 +208,8 @@ class RenderView(tk.Frame):
         self._italic_btn = None
         self._style_note_holder = None
         self._style_note = None
+        self._stroke_label = None
+        self._stroke_swatches = None
         for widget in list(self._inspector.winfo_children()):
             widget.destroy()
 
@@ -269,30 +282,80 @@ class RenderView(tk.Frame):
 
         # Profile. It governs the four controls under it, so it sits
         # right on top of them.
-        # No reset here: «(ninguno)» in the selector is that reset.
-        self._label_row("Perfil")
-        self._profile_var = tk.StringVar(value=entry.profile or NO_PROFILE)
+        # No reset here: «(ninguno)» in the selector is that reset, so
+        # the right of the row is free for the manager instead. Built by
+        # hand and not with `_label_row` precisely because that one owns
+        # the right side for the ↺.
+        profile_head = tk.Frame(self._inspector, bg=SIDEBAR_BG)
+        profile_head.pack(fill=tk.X, pady=(0, 5))
+        theme.field_label(profile_head, "Perfil").pack(side=tk.LEFT)
+        theme.button(
+            profile_head, "Gestionar…", self._open_profile_manager,
+            variant="ghost", size=8, padx=4, pady=0,
+            tooltip="Renombrar, duplicar, borrar o ajustar los perfiles",
+        ).pack(side=tk.RIGHT)
+        # El asterisco va en lo que se lee, no en lo que se guarda: la
+        # sección sigue llevando «Grito», pero ya no se ve como «Grito».
+        # El menú solo escribe la variable al elegir una fila, y esas
+        # filas van sin asterisco, así que nunca llega uno al sidecar.
+        overrides = self._overrides(entry)
+        self._profile_var = tk.StringVar(
+            value=f"{entry.profile} *" if overrides
+            else (entry.profile or NO_PROFILE),
+        )
         theme.option_menu(
             self._inspector, self._profile_var,
             [NO_PROFILE, *(p.name for p in self._config.profiles)],
             self._on_profile_change,
         ).pack(fill=tk.X, pady=(0, 4))
-        actions = tk.Frame(self._inspector, bg=SIDEBAR_BG)
-        actions.pack(fill=tk.X, pady=(0, 10))
-        theme.button(
-            actions, "Guardar como perfil…", self._begin_naming,
-            variant="ghost", size=8, padx=6, pady=4,
-            tooltip="Crear un perfil con lo que se ve en esta sección",
-        ).pack(side=tk.LEFT)
-        if entry.profile and len(sections) > 1:
+        if overrides:
+            theme.body(
+                self._inspector, f"* con {len(overrides)} ajuste(s) propios",
+                size=8, bg=SIDEBAR_BG, fg=NEUTRAL_600, wrap=210,
+            ).pack(fill=tk.X, pady=(0, 4))
+            # Las dos salidas del asterisco: soltar los ajustes, o
+            # subirlos. Aquí arriba y no junto a cada campo porque valen
+            # para todos a la vez; el ↺ de cada fila sigue siendo el suelto.
+            row = tk.Frame(self._inspector, bg=SIDEBAR_BG)
+            row.pack(fill=tk.X, pady=(0, 4))
             theme.button(
-                actions, "A toda la página", self._apply_profile_to_page,
+                row, "Restablecer", lambda: self._reset_fields(*STYLE_FIELDS),
+                variant="ghost", size=8, padx=6, pady=4,
+                tooltip=f"Devolver esta sección a «{entry.profile}»",
+            ).pack(side=tk.LEFT)
+            theme.button(
+                row, "Actualizar perfil", self._update_profile,
                 variant="ghost", size=8, padx=6, pady=4,
                 tooltip=(
-                    f"Asignar «{entry.profile}» a las {len(sections)} "
-                    "secciones de esta página"
+                    f"Pasar estos valores a «{entry.profile}» "
+                    "y a las secciones que lo usan"
                 ),
-            ).pack(side=tk.RIGHT)
+            ).pack(side=tk.LEFT, padx=(4, 0))
+        theme.button(
+            self._inspector, "Guardar como perfil…", self._begin_naming,
+            variant="ghost", size=8, padx=6, pady=4, anchor=tk.W,
+            tooltip="Crear un perfil con lo que se ve en esta sección",
+        ).pack(fill=tk.X)
+        if entry.profile:
+            # «A toda la página» se quedaba corto: un capítulo se rotula
+            # entero con las mismas dos o tres voces, y repartir el perfil
+            # página a página era el trabajo que el perfil venía a evitar.
+            spread = tk.Frame(self._inspector, bg=SIDEBAR_BG)
+            spread.pack(fill=tk.X, pady=(4, 0))
+            theme.body(
+                spread, "Aplicar a", size=8, bg=SIDEBAR_BG, fg=NEUTRAL_600,
+            ).pack(side=tk.LEFT, pady=(4, 0))
+            for label, chapter, tip in (
+                ("Página", False, "las secciones de esta página"),
+                ("Capítulo", True, "las secciones de todas las páginas"),
+            ):
+                theme.button(
+                    spread, label,
+                    lambda c=chapter: self._apply_profile(c),
+                    variant="ghost", size=8, padx=6, pady=4,
+                    tooltip=f"Asignar «{entry.profile}» a {tip}",
+                ).pack(side=tk.LEFT, padx=(4, 0))
+        tk.Frame(self._inspector, bg=SIDEBAR_BG, height=10).pack(fill=tk.X)
         if self._naming_for == mark_id:
             self._build_name_row()
 
@@ -364,18 +427,38 @@ class RenderView(tk.Frame):
         # Colour.
         self._label_row("Color", "color")
         self._swatch_row = tk.Frame(self._inspector, bg=SIDEBAR_BG)
-        self._swatch_row.pack(fill=tk.X)
-        current = self._config.asked(entry, "color") or self._config.color
-        for color in TEXT_COLOR_PRESETS:
-            theme.swatch(
-                self._swatch_row, _rgb_to_hex(color),
-                command=lambda c=color: self._set_color(c),
-                selected=(tuple(color) == tuple(current)),
-            ).pack(side=tk.LEFT, padx=(0, 3))
-        theme.button(
-            self._swatch_row, "Más…", self._pick_color,
-            variant="ghost", size=8, padx=4, pady=2,
-        ).pack(side=tk.LEFT, padx=(4, 0))
+        self._swatch_row.pack(fill=tk.X, pady=(0, 10))
+        self._build_swatches(self._swatch_row, "color")
+
+        # Contorno. Un solo mando: el ancho enciende y gradúa, y en cero
+        # no hay borde. Lo que se rotula fuera del globo cae sobre dibujo,
+        # y ahí una letra sin borde no se lee.
+        # ``or`` no vale aquí: cero es una respuesta, no un hueco.
+        asked = self._config.asked(entry, "stroke_width")
+        stroke_width = int(
+            self._config.stroke_width if asked is None else asked
+        )
+        self._stroke_label = self._label_row(
+            _stroke_text(stroke_width),
+            "stroke_width", "stroke_color", pady=(0, 2),
+        )
+        self._stroke_var = tk.IntVar(value=stroke_width)
+        theme.slider(
+            self._inspector,
+            from_=0,
+            to=TEXT_RENDER_STROKE_MAX_PX,
+            variable=self._stroke_var,
+            command=self._on_stroke_change,
+            bg=SIDEBAR_BG,
+        ).pack(fill=tk.X)
+        # El color del borde solo aparece cuando hay borde. Vive en un
+        # holder que sí está siempre empaquetado, porque volver a
+        # empaquetar la fila la mandaría al final del riel y no a su sitio.
+        holder = tk.Frame(self._inspector, bg=SIDEBAR_BG)
+        holder.pack(fill=tk.X)
+        self._stroke_swatches = tk.Frame(holder, bg=SIDEBAR_BG)
+        self._build_swatches(self._stroke_swatches, "stroke_color")
+        self._sync_stroke_swatches(stroke_width)
 
         # Sibling sections, so the rail can move between them.
         if len(sections) > 1:
@@ -391,6 +474,31 @@ class RenderView(tk.Frame):
                 lambda: self._step_section(1),
                 variant="outline", size=8, padx=8, pady=6,
             ).pack(side=tk.RIGHT)
+
+    def _build_swatches(self, parent: tk.Misc, field: str) -> None:
+        """Una fila de muestras y su «Más…», que ahora piden dos campos."""
+        entry = self._current_entry()
+        asked = self._config.asked(entry, field) if entry else None
+        current = asked or getattr(self._config, field)
+        for color in TEXT_COLOR_PRESETS:
+            theme.swatch(
+                parent, _rgb_to_hex(color),
+                command=lambda c=color: self._set_color(c, field),
+                selected=(tuple(color) == tuple(current)),
+            ).pack(side=tk.LEFT, padx=(0, 3))
+        theme.button(
+            parent, "Más…", lambda: self._pick_color(field),
+            variant="ghost", size=8, padx=4, pady=2,
+        ).pack(side=tk.LEFT, padx=(4, 0))
+
+    def _sync_stroke_swatches(self, width: int) -> None:
+        """Enseña u oculta el color del borde según lo haya o no."""
+        if self._stroke_swatches is None:
+            return
+        if width > 0:
+            self._stroke_swatches.pack(fill=tk.X, pady=(0, 10))
+        else:
+            self._stroke_swatches.pack_forget()
 
     def _label_row(
         self, text: str, *fields: str, pady: tuple[int, int] = (0, 5),
@@ -536,6 +644,16 @@ class RenderView(tk.Frame):
     # Profiles
     # ------------------------------------------------------------------
 
+    def _overrides(self, entry: TranslationEntry | None) -> tuple[str, ...]:
+        """En qué campos esta sección se aparta de su perfil.
+
+        Sin perfil no hay de qué apartarse: lo que la sección tenga
+        puesto es lo suyo y no hay nada que restablecer ni que subir.
+        """
+        if entry is None or not entry.profile:
+            return ()
+        return tuple(f for f in STYLE_FIELDS if getattr(entry, f) is not None)
+
     def _on_profile_change(self, label: str) -> None:
         """Assign a profile, or take it away.
 
@@ -564,12 +682,50 @@ class RenderView(tk.Frame):
         """
         entry = self._current_entry()
         name = self._name_var.get().strip() if self._name_var else ""
-        if not name or entry is None or self._selected_mark is None:
+        if entry is None or self._selected_mark is None:
             self._cancel_naming()
             return
+        reason = validate_name(name, self._config.profiles)
+        # Un nombre repetido no es un error: es editar ese perfil. Pero
+        # editarlo alcanza a todo el capítulo, así que se avisa.
+        clash = next(
+            (p for p in self._config.profiles
+             if p.name.casefold() == name.casefold()),
+            None,
+        )
+        if reason is not None and clash is None:
+            self._status.set(reason, "error")
+            return
+        if clash is not None:
+            used = self._profile_usage(clash.name)
+            if not theme.confirm(
+                self, f"Reemplazar «{clash.name}»",
+                f"Ya hay un perfil «{clash.name}» que usan {used} "
+                "sección(es). Pasarán a estos valores en los campos que no "
+                "hayan tocado a mano.",
+                confirm_label=f"Reemplazar «{clash.name}»",
+            ):
+                return
+            # El nombre que gana es el que ya estaba: cambiar solo la caja
+            # de las letras renombraría el perfil por la puerta de atrás.
+            name = clash.name
+        self._store_profile(self._profile_from_section(name))
+        self._naming_for = None
+        self._update_entry(profile=name)
+        self._render_inspector()
+        self._status.set(f"Perfil «{name}» guardado", "success")
+
+    def _profile_from_section(self, name: str) -> TextProfile:
+        """Lo que la sección seleccionada está enseñando, con un nombre.
+
+        Los valores son los efectivos —lo que el riel muestra— y no solo
+        los ajustes propios: un perfil hecho de una sección que no había
+        cambiado nada saldría vacío y parecería roto.
+        """
+        entry = self._current_entry()
         mark = self._stores[self._index].marks[self._selected_mark]
         box = resolve_box(mark, entry, self._config)
-        profile = TextProfile(
+        return TextProfile(
             name=name,
             font_family=box.font_family,
             max_pt=box.max_pt,
@@ -579,25 +735,53 @@ class RenderView(tk.Frame):
             # «negrita» cuando se aplique a otra que sí la tenga.
             bold=bool(self._config.asked(entry, "bold")),
             italic=bool(self._config.asked(entry, "italic")),
+            stroke_width=box.stroke_width,
+            stroke_color=box.stroke_color,
         )
-        # Guardar con un nombre que ya existe es editar ese perfil, y
-        # editarlo alcanza a todas las secciones que lo usan — en los
-        # campos que esas secciones no hayan tocado.
+
+    def _store_profile(self, profile: TextProfile) -> None:
+        """Mete el perfil en la lista, pisando al que llevara ese nombre.
+
+        Reescribir uno que ya existe alcanza a todas las secciones que lo
+        usan, en los campos que esas secciones no hayan tocado. Es lo
+        mismo que hacen «Guardar como perfil…» y «Actualizar perfil».
+        """
         profiles = list(self._config.profiles)
         for i, existing in enumerate(profiles):
-            if existing.name == name:
+            if existing.name == profile.name:
                 profiles[i] = profile
                 break
         else:
             profiles.append(profile)
         self._set_profiles(tuple(profiles))
-        self._naming_for = None
-        self._update_entry(profile=name)
-        self._render_inspector()
-        self._status.set(f"Perfil «{name}» guardado", "success")
 
-    def _apply_profile_to_page(self) -> None:
-        """Give every section on this page the selected one's profile.
+    def _update_profile(self) -> None:
+        """Sube lo que se ve al perfil, y suelta los ajustes de la sección.
+
+        Soltarlos es la mitad del trabajo: si se quedaran, la sección
+        seguiría pisando al perfil —con los mismos valores, pero
+        pisándolo—, el asterisco no se iría y editar el perfil más tarde
+        ya no llegaría hasta aquí.
+        """
+        entry = self._current_entry()
+        if entry is None or not entry.profile:
+            return
+        used = self._profile_usage(entry.profile)
+        if used > 1 and not theme.confirm(
+            self, f"Actualizar «{entry.profile}»",
+            f"«{entry.profile}» lo usan {used} secciones. Las demás pasarán "
+            "a estos valores en los campos que no hayan tocado a mano.",
+            confirm_label="Actualizar",
+        ):
+            return
+        # El perfil se arma antes de soltar nada: después, los valores
+        # que hay que subir ya no estarían en la sección.
+        self._store_profile(self._profile_from_section(entry.profile))
+        self._reset_fields(*STYLE_FIELDS)
+        self._status.set(f"Perfil «{entry.profile}» actualizado", "success")
+
+    def _apply_profile(self, chapter: bool = False) -> None:
+        """Give every section in scope the selected one's profile.
 
         Only the profile. A section that had picked its own colour or
         size keeps it, because the profile is the weaker layer — which
@@ -606,21 +790,70 @@ class RenderView(tk.Frame):
         entry = self._current_entry()
         if entry is None or not entry.profile:
             return
-        store = self._stores[self._index]
+        stores = self._stores if chapter else [self._stores[self._index]]
+        # ponytail: un `set_translation` por sección, y cada uno escribe
+        # su sidecar; si un capítulo enorme se nota, un batch en MarksStore.
         changed = 0
-        for mark_id in self._translated_sections():
-            other = store.get_translation(mark_id)
-            if other is None or other.profile == entry.profile:
-                continue
-            store.set_translation(
-                mark_id, replace(other, profile=entry.profile, edited=True),
-            )
-            changed += 1
+        for store in stores:
+            for mark_id, other in store.translations.items():
+                if other.profile == entry.profile or not other.text.strip():
+                    continue
+                store.set_translation(
+                    mark_id, replace(other, profile=entry.profile, edited=True),
+                )
+                changed += 1
         self._canvas.refresh()
         self._render_inspector()
+        where = "el capítulo" if chapter else "la página"
+        if not changed:
+            # «Aplicado a 0 secciones» se cantaba como un éxito, y lo que
+            # había pasado es que no había nada que hacer.
+            self._status.set(
+                f"Todas las secciones de {where} ya usaban "
+                f"«{entry.profile}»", "info",
+            )
+            return
         self._status.set(
-            f"«{entry.profile}» aplicado a {changed} sección(es)", "success",
+            f"«{entry.profile}» aplicado a {changed} sección(es) de {where}",
+            "success",
         )
+
+    def _profile_usage(self, name: str) -> int:
+        """Cuántas secciones del capítulo llevan ese perfil."""
+        return sum(
+            1 for store in self._stores
+            for other in store.translations.values()
+            if other.profile == name
+        )
+
+    def _open_profile_manager(self) -> None:
+        """El gestor: perfiles sin tener que pasar por una sección."""
+        ProfileDialog(
+            self,
+            profiles=self._config.profiles,
+            usage_of=self._profile_usage,
+            font_options=self._font_options,
+            on_change=self._set_profiles,
+            on_rename=self._rename_profile,
+        )
+        # El selector del riel se quedó con la lista vieja, y el nombre
+        # que muestra puede haber cambiado o desaparecido.
+        self._render_inspector()
+
+    def _rename_profile(self, old: str, new: str) -> None:
+        """Arrastra el nombre nuevo a las secciones que usaban el viejo.
+
+        Sin esto renombrar sería borrar: el sidecar guarda el nombre, así
+        que un perfil rebautizado dejaría huérfanas a todas sus secciones.
+        """
+        for store in self._stores:
+            for mark_id, other in store.translations.items():
+                if other.profile != old:
+                    continue
+                store.set_translation(
+                    mark_id, replace(other, profile=new, edited=True),
+                )
+        self._canvas.refresh()
 
     def _set_profiles(self, profiles: tuple[TextProfile, ...]) -> None:
         """Publish the new list: to the canvas, and to disk.
@@ -724,20 +957,43 @@ class RenderView(tk.Frame):
             return
         self._update_entry(max_pt=size)
 
-    def _set_color(self, color: tuple[int, int, int]) -> None:
-        self._update_entry(color=tuple(color))
+    def _on_stroke_change(self, value: str) -> None:
+        try:
+            width = int(float(value))
+        except (TypeError, ValueError):
+            return
+        if self._stroke_label is not None:
+            self._stroke_label.configure(text=_stroke_text(width))
+        # Enseñar el color del borde no reconstruye el inspector: eso se
+        # llevaría el deslizador por delante con el ratón todavía encima.
+        self._sync_stroke_swatches(width)
+        entry = self._current_entry()
+        if entry is not None and entry.stroke_width == width:
+            return
+        self._update_entry(stroke_width=width)
+
+    def _set_color(
+        self, color: tuple[int, int, int], field: str = "color",
+    ) -> None:
+        self._update_entry(**{field: tuple(color)})
         self._render_inspector()
 
-    def _pick_color(self) -> None:
+    def _pick_color(self, field: str = "color") -> None:
+        """El «Más…» de una fila de muestras, sea la del texto o la del borde.
+
+        Un argumento en vez de un par de métodos gemelos: lo único que
+        cambia entre los dos es de qué campo sale el color de partida.
+        """
         entry = self._current_entry()
-        asked = self._config.asked(entry, "color") if entry else None
-        initial = _rgb_to_hex(asked or self._config.color)
-        result = colorchooser.askcolor(
-            color=initial, title="Color del texto", parent=self,
+        asked = self._config.asked(entry, field) if entry else None
+        initial = _rgb_to_hex(asked or getattr(self._config, field))
+        title = (
+            "Color del texto" if field == "color" else "Color del contorno"
         )
+        result = colorchooser.askcolor(color=initial, title=title, parent=self)
         if not result or not result[0]:
             return
-        self._set_color(tuple(int(round(c)) for c in result[0]))
+        self._set_color(tuple(int(round(c)) for c in result[0]), field)
 
     # ------------------------------------------------------------------
     # Canvas
@@ -815,6 +1071,12 @@ class RenderView(tk.Frame):
                 display = cached
         self._canvas.set_image(display)
         self._canvas.set_store(self._stores[self._index])
+        # El campo de nombre guarda un id de marca, y los ids se repiten
+        # entre páginas: sin esto reaparecía abierto en la sección que
+        # tuviera el mismo número en la página nueva. Aquí y no en
+        # `_on_prev`/`_on_next` porque este es el camino por el que pasan
+        # los dos.
+        self._naming_for = None
         # Picks the first translated section when nothing is selected.
         self._render_inspector()
         if focus_section and self._selected_mark is not None:
@@ -901,6 +1163,10 @@ class RenderView(tk.Frame):
 
         self._status.set("Exportando…", "working")
         self.update_idletasks()
+        # La ventana se cierra pase lo que pase: si la exportación
+        # revienta, dejarla puesta encima de un error sería lo peor de
+        # los dos mundos.
+        progress = ExportProgress(self, total=len(self._items))
         try:
             out_dir.mkdir(parents=True, exist_ok=True)
             results = export_translations(
@@ -908,6 +1174,7 @@ class RenderView(tk.Frame):
                 stores=self._stores,
                 out_dir=out_dir,
                 config=self._config,
+                on_progress=progress.step,
             )
         except Exception as exc:
             log.exception("Error exportando: %s", exc)
@@ -916,6 +1183,8 @@ class RenderView(tk.Frame):
             # mirando, y el detalle largo va al log.
             self._status.set(f"La exportación falló: {exc}", "error")
             return
+        finally:
+            progress.close()
 
         for store in self._stores:
             store.save()

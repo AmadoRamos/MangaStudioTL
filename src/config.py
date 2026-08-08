@@ -142,7 +142,11 @@ TEXT_RENDER_MAX_PT: int = 72
 TEXT_RENDER_MIN_PT: int = 8
 TEXT_RENDER_LINE_SPACING: float = 1.15
 TEXT_RENDER_PADDING_PX: int = 2
-TEXT_RENDER_STROKE: bool = False
+#: Cero es «sin contorno»: el ancho enciende y gradúa a la vez, así que no
+#: hace falta un booleano al lado que pueda contradecirlo.
+TEXT_RENDER_STROKE_WIDTH: int = 0
+TEXT_RENDER_STROKE_COLOR: tuple[int, int, int] = (0xFF, 0xFF, 0xFF)
+TEXT_RENDER_STROKE_MAX_PX: int = 12
 
 # Default font configuration for the translator view.
 TEXT_RENDER_DEFAULT_FAMILY: str = "Segoe UI"

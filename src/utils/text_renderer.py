@@ -2,10 +2,11 @@
 
 The renderer is used in two places:
 
-1. Live preview inside the translator view (transparent background,
-   optional stroke for legibility on busy art).
-2. Final export (text drawn on the clean image, transparent
-   background, no stroke).
+1. Live preview inside the translator view.
+2. Final export (text drawn on the clean image).
+
+Both go through ``resolve_box``, so both get the same contorno: it is a
+property of the section, not of who is drawing it.
 
 ``fit_font`` performs a binary search to find the largest font size
 that makes the wrapped text fit inside a target box. The same helper
@@ -35,7 +36,8 @@ from src.config import (
     TEXT_RENDER_MAX_PT,
     TEXT_RENDER_MIN_PT,
     TEXT_RENDER_PADDING_PX,
-    TEXT_RENDER_STROKE,
+    TEXT_RENDER_STROKE_COLOR,
+    TEXT_RENDER_STROKE_WIDTH,
 )
 from src.utils.logger import get_logger
 from src.utils.marks_store import Mark, TranslationEntry
@@ -367,9 +369,11 @@ class TextBox:
     align: str = "center"
     max_pt: int = TEXT_RENDER_MAX_PT
     min_pt: int = TEXT_RENDER_MIN_PT
-    stroke: bool = TEXT_RENDER_STROKE
-    stroke_color: tuple[int, int, int] = (255, 255, 255)
-    stroke_width: int = 2
+    #: Ancho del contorno en píxeles de imagen. Cero es «sin contorno»:
+    #: un solo campo enciende y gradúa, y así no hay un booleano al lado
+    #: que pueda decir lo contrario que el ancho.
+    stroke_width: int = TEXT_RENDER_STROKE_WIDTH
+    stroke_color: tuple[int, int, int] = TEXT_RENDER_STROKE_COLOR
     font_family: str | None = None
     #: Asked for, not necessarily granted: a family with no bold file on
     #: disk comes out regular. ``resolve_style`` says which it will be.
@@ -388,7 +392,7 @@ class FitResult:
 class RenderConfig:
     """Everything the resolver needs that is not the section itself.
 
-    The first three fields are the chapter-wide layer: each has a
+    Every field but ``profiles`` is the chapter-wide layer: each has a
     per-section counterpart on
     :class:`~src.utils.marks_store.TranslationEntry` that stays ``None``
     until somebody touches it. ``profiles`` is the user's set of named
@@ -400,6 +404,8 @@ class RenderConfig:
     font_family: str | None = None
     max_pt: int = TEXT_RENDER_MAX_PT
     color: tuple[int, int, int] = TEXT_RENDER_DEFAULT_COLOR
+    stroke_width: int = TEXT_RENDER_STROKE_WIDTH
+    stroke_color: tuple[int, int, int] = TEXT_RENDER_STROKE_COLOR
     profiles: tuple[TextProfile, ...] = ()
 
     def profile(self, name: str | None) -> TextProfile | None:
@@ -493,6 +499,15 @@ def resolve_box(
         text=entry.text,
         color=_first_set(config.asked(entry, "color"), config.color),
         max_pt=_first_set(config.asked(entry, "max_pt"), config.max_pt),
+        # El cero sí es una respuesta —``_first_set`` solo salta ``None``—,
+        # y es la que hace falta: «a esta viñeta el contorno del perfil le
+        # sobra» tiene que poder decirse sin quitarle el perfil.
+        stroke_width=_first_set(
+            config.asked(entry, "stroke_width"), config.stroke_width,
+        ),
+        stroke_color=_first_set(
+            config.asked(entry, "stroke_color"), config.stroke_color,
+        ),
         font_family=family,
         bold=bold,
         italic=italic,
@@ -654,8 +669,12 @@ def _draw_box(draw: ImageDraw.ImageDraw, box: TextBox) -> None:
                 line,
                 font=font,
                 fill=box.color,
-                stroke_width=(box.stroke_width if box.stroke else 0),
-                stroke_fill=(box.stroke_color if box.stroke else None),
+                # ponytail: fit_text no descuenta el contorno, que PIL
+                # dibuja hacia fuera del glifo; con contornos gruesos el
+                # texto roza el borde del globo — restar 2*stroke_width
+                # al ancho útil si llega a molestar.
+                stroke_width=box.stroke_width,
+                stroke_fill=(box.stroke_color if box.stroke_width else None),
             )
         except TypeError:
             draw.text(

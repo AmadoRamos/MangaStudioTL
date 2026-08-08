@@ -16,7 +16,7 @@ sidecar solo guarda el nombre.
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Iterable
 
@@ -27,6 +27,12 @@ from src.utils.marks_store import opt_bool, opt_color, opt_int
 log = get_logger("text_profiles")
 
 _PATH: Path = PROJECT_ROOT / TEXT_PROFILES_FILE
+
+#: La fila de «sin perfil» del selector. No es el nombre de un perfil: una
+#: sección sin perfil cae directamente a los valores del capítulo. Vive
+#: aquí y no en la vista porque es la regla que dice qué nombre no puede
+#: llevar un perfil, y esa regla se comprueba en dos sitios.
+NO_PROFILE = "(ninguno)"
 
 
 @dataclass(frozen=True)
@@ -39,11 +45,15 @@ class TextProfile:
     color: tuple[int, int, int] | None = None
     bold: bool | None = None
     italic: bool | None = None
+    #: Cero es «este perfil dibuja sin contorno», no «sin tocar».
+    stroke_width: int | None = None
+    stroke_color: tuple[int, int, int] | None = None
 
     def to_dict(self) -> dict:
         data = asdict(self)
-        if self.color is not None:
-            data["color"] = list(self.color)
+        for key in ("color", "stroke_color"):
+            if data[key] is not None:
+                data[key] = list(data[key])
         return {k: v for k, v in data.items() if v is not None}
 
     @classmethod
@@ -61,7 +71,44 @@ class TextProfile:
             color=opt_color(data.get("color")),
             bold=opt_bool(data.get("bold")),
             italic=opt_bool(data.get("italic")),
+            stroke_width=opt_int(data.get("stroke_width")),
+            stroke_color=opt_color(data.get("stroke_color")),
         )
+
+
+#: Lo que un perfil dicta y una sección puede pisar. Sale del propio
+#: dataclass para que añadir un campo no obligue a acordarse también de
+#: esta lista; la sección lleva los mismos nombres, y eso lo comprueba
+#: ``test_profile_layer``.
+STYLE_FIELDS: tuple[str, ...] = tuple(
+    f.name for f in fields(TextProfile) if f.name != "name"
+)
+
+
+def validate_name(
+    name: str,
+    profiles: Iterable[TextProfile],
+    *,
+    current: str | None = None,
+) -> str | None:
+    """El motivo por el que *name* no vale como nombre de perfil, o ``None``.
+
+    Un solo sitio para las tres reglas, porque las piden dos: el campo
+    del riel al crear y el del gestor al renombrar. ``current`` es el
+    nombre que ya lleva el perfil que se está editando, para que cambiar
+    «Grito» por «GRITO» no se lea como un duplicado de sí mismo.
+    """
+    name = name.strip()
+    if not name:
+        return "El perfil necesita un nombre."
+    if name.casefold() == NO_PROFILE.casefold():
+        return f"«{NO_PROFILE}» es la fila de quitar el perfil, no un nombre."
+    mine = current.casefold() if current else None
+    for existing in profiles:
+        key = existing.name.casefold()
+        if key == name.casefold() and key != mine:
+            return f"Ya hay un perfil «{existing.name}»."
+    return None
 
 
 def load() -> tuple[TextProfile, ...]:
@@ -88,10 +135,12 @@ def load() -> tuple[TextProfile, ...]:
             continue
         profile = TextProfile.from_dict(item)
         # El nombre es la clave con la que lo busca el sidecar, así que
-        # un duplicado haría que la sección dependiese del orden.
-        if profile is None or profile.name in seen:
+        # un duplicado haría que la sección dependiese del orden. Se
+        # compara sin distinguir mayúsculas: «Grito» y «grito» en un JSON
+        # editado a mano son dos filas que el selector no sabe separar.
+        if profile is None or profile.name.casefold() in seen:
             continue
-        seen.add(profile.name)
+        seen.add(profile.name.casefold())
         out.append(profile)
     return tuple(out)
 

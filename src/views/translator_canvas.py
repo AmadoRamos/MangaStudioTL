@@ -77,6 +77,15 @@ def _rgb_to_hex(color: tuple[int, int, int]) -> str:
     return f"#{r:02x}{g:02x}{b:02x}"
 
 
+def _stroke_text(width: int) -> str:
+    """La etiqueta del contorno, que también dice si está apagado.
+
+    Vive aquí, junto a ``_rgb_to_hex``, porque la piden el riel y el
+    gestor de perfiles, y el riel ya importa al gestor.
+    """
+    return f"Contorno · {width} px" if width else "Contorno · ninguno"
+
+
 def _tk_font_for(
     size: int,
     family: str | None = None,
@@ -249,15 +258,36 @@ class TranslatorCanvas(ZoomedCanvas):
             cy1 = y1 + max(0.0, ((y2 - y1) - total_h) / 2)
             text_color = _rgb_to_hex(box.color)
             ids: list[int] = []
+            placed: list[tuple[float, float, str]] = []
             for line, line_w, line_x_offset in layout.lines:
                 tx = cx1 + ((x2 - x1) - 4 - line_w * scale) / 2
-                cid = self._canvas.create_text(
-                    tx + line_x_offset * scale, cy1,
-                    text=line, fill=text_color,
-                    font=tk_font, anchor=tk.NW,
-                )
-                ids.append(cid)
+                placed.append((tx + line_x_offset * scale, cy1, line))
                 cy1 += line_h
+            # El contorno va en dos pasadas —todas las copias primero, los
+            # rellenos después— para que la línea de abajo no se coma el
+            # relleno de la de arriba cuando el borde es grueso.
+            if box.stroke_width:
+                # ponytail: ocho items de canvas por línea contorneada,
+                # porque `create_text` de Tk no sabe hacer un borde. Si una
+                # página con muchas secciones se arrastra al hacer pan, la
+                # previa pasa a dibujarse con PIL.
+                off = max(1, int(round(box.stroke_width * scale)))
+                stroke_color = _rgb_to_hex(box.stroke_color)
+                for tx, ty, line in placed:
+                    for dx in (-off, 0, off):
+                        for dy in (-off, 0, off):
+                            if dx == 0 and dy == 0:
+                                continue
+                            ids.append(self._canvas.create_text(
+                                tx + dx, ty + dy,
+                                text=line, fill=stroke_color,
+                                font=tk_font, anchor=tk.NW,
+                            ))
+            for tx, ty, line in placed:
+                ids.append(self._canvas.create_text(
+                    tx, ty, text=line, fill=text_color,
+                    font=tk_font, anchor=tk.NW,
+                ))
             # A translated section reads as an ink-framed bubble; the
             # selected one takes the accent, as in the mockups.
             is_selected = mark_id == self._selected_mark_id

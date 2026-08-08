@@ -4,12 +4,13 @@ Run with: python test_smoke.py
 """
 
 import tempfile
+import time
 import tkinter as tk
 from pathlib import Path
 
 from src.utils.background_worker import BackgroundWorker
 from src.utils.marks_store import Mark, TranslationEntry
-from src.utils.text_profiles import TextProfile
+from src.utils.text_profiles import STYLE_FIELDS, TextProfile
 from src.utils.text_renderer import RenderConfig, resolve_box
 
 
@@ -473,6 +474,19 @@ def test_profile_layer() -> None:
     orphan = replace(entry, profile="Ya no existe")
     assert resolve_box(mark, orphan, config).max_pt == 36
 
+    # El contorno: cero es una respuesta, no un hueco. Sin esto, quitarle
+    # el borde a una viñeta suelta obligaría a quitarle el perfil entero.
+    borde = replace(config, profiles=(replace(grito, stroke_width=6),))
+    assert resolve_box(mark, entry, borde).stroke_width == 6
+    assert resolve_box(mark, replace(entry, stroke_width=0), borde).stroke_width == 0
+    # Y con nadie opinando, manda el suelo del capítulo.
+    assert resolve_box(mark, entry, config).stroke_width == config.stroke_width
+
+    # El riel pregunta por estos campos en la sección para saber si se
+    # aparta del perfil, y se los quita de golpe al restablecer. Uno que
+    # el perfil dicte y la sección no tenga reventaría las dos cosas.
+    assert all(hasattr(own, field) for field in STYLE_FIELDS), STYLE_FIELDS
+
 
 def test_rect_geometry() -> None:
     """Mover y redimensionar un rectángulo: recorte, volteo y mínimo.
@@ -555,10 +569,76 @@ def test_profiles_round_trip(tmp_file) -> None:
         )
         assert text_profiles.load() == (TextProfile(name="A"),)
 
+        # Dos entradas que solo se diferencian en la caja de las letras
+        # son un nombre que el selector no sabe separar.
+        tmp_file.write_text(
+            '[{"name": "Grito"}, {"name": "grito", "max_pt": 99}]',
+            encoding="utf-8",
+        )
+        assert text_profiles.load() == (TextProfile(name="Grito"),)
+
         tmp_file.write_text("{ esto no es json", encoding="utf-8")
         assert text_profiles.load() == ()
     finally:
         text_profiles._PATH = original
+
+
+def test_profile_names() -> None:
+    """Qué nombre vale para un perfil, que es lo único ramificado del gestor.
+
+    El nombre es la clave con la que el sidecar encuentra el perfil, así
+    que un duplicado —o «(ninguno)», que es la fila de desasignar— deja
+    secciones apuntando a algo que no se puede elegir.
+    """
+    from src.utils.text_profiles import NO_PROFILE, validate_name
+
+    existing = (TextProfile(name="Grito"), TextProfile(name="Diálogo"))
+
+    assert validate_name("Narración", existing) is None
+    assert validate_name("   ", existing) is not None
+    assert validate_name(NO_PROFILE, existing) is not None
+    assert validate_name("(NINGUNO)", existing) is not None
+    assert validate_name("grito", existing) is not None
+
+    # Renombrar un perfil cambiándole solo la caja no es duplicarlo.
+    assert validate_name("GRITO", existing, current="Grito") is None
+    # Pero seguir chocando con otro sí lo es.
+    assert validate_name("diálogo", existing, current="Grito") is not None
+
+
+def test_export_progress(root: tk.Tk) -> None:
+    """La ventana de la exportación: qué página, cuánto y cuánto falta.
+
+    El exportador cuenta las páginas *terminadas* y avisa una vez más al
+    acabar, sin nombre; la ventana tiene que leer las dos cosas sin
+    pasarse del total ni prometer un tiempo que no puede saber.
+    """
+    from src.views import theme
+    from src.views.export_dialog import ExportProgress
+
+    theme.init(root)
+    root.deiconify()          # grab_set() no funciona sobre una raíz oculta
+    win = ExportProgress(root, total=4)
+
+    assert win._count.cget("text") == "Página 1 de 4 · 0 %"
+    # Sin ninguna hecha no hay con qué medir, y un número inventado sería
+    # peor que no dar ninguno.
+    assert win._eta.cget("text") == "calculando…"
+
+    # Dos páginas en dos segundos: quedan dos, o sea unos dos segundos.
+    win._started = time.monotonic() - 2.0
+    win.step(2, 4, Path("pagina_03.png"))
+    assert win._page.cget("text") == "pagina_03.png"
+    assert win._count.cget("text") == "Página 3 de 4 · 50 %"
+    assert win._eta.cget("text") == "queda ~2 s", win._eta.cget("text")
+    assert abs(win._meter._fraction - 0.5) < 1e-9, win._meter._fraction
+
+    # El aviso final llega sin página y no puede contar una de más.
+    win.step(4, 4, Path(""))
+    assert win._count.cget("text") == "Página 4 de 4 · 100 %"
+    assert win._eta.cget("text") == ""
+    assert win._page.cget("text") == "Terminando…"
+    win.close()
 
 
 if __name__ == "__main__":
@@ -575,6 +655,8 @@ if __name__ == "__main__":
         test_detail_panel(root)
         test_box_precedence()
         test_profile_layer()
+        test_profile_names()
+        test_export_progress(root)
         test_rect_geometry()
         test_box_offset()
         with tempfile.TemporaryDirectory() as tmp:
