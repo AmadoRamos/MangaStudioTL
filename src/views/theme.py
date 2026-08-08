@@ -26,6 +26,8 @@ from tkinter import font as tkfont
 from tkinter import ttk
 from typing import Callable, Iterable, Sequence
 
+from PIL import Image, ImageTk
+
 from src.config import (
     ACCENT_100,
     ACCENT_200,
@@ -43,13 +45,16 @@ from src.config import (
     NEUTRAL_500,
     NEUTRAL_600,
     NEUTRAL_700,
+    PROJECT_ROOT,
 )
 
 __all__ = [
     "init",
     "heading_font", "body_font", "mono_font",
     "kicker", "heading", "body", "rule",
-    "button", "restyle_button", "SegmentedBar", "SEGMENT_CHARS",
+    "icon", "ICON_SIZE",
+    "button", "restyle_button", "set_icon", "set_icon_color", "set_enabled",
+    "SegmentedBar", "SEGMENT_CHARS",
     "Meter", "DashedZone", "TopBar",
     "swatch", "tag", "card", "field_label", "entry", "text_area",
     "option_menu", "slider", "checkbox",
@@ -273,6 +278,47 @@ def _bg_of(widget: tk.Misc) -> str:
 
 
 # ----------------------------------------------------------------------
+# Icons
+# ----------------------------------------------------------------------
+
+#: Where the icon set lives. The files are Font Awesome «solid» exports
+#: at 640×640, black on transparent.
+ICON_DIR = PROJECT_ROOT / "src" / "assets" / "images"
+
+#: Side, in pixels, of an icon inside a button.
+ICON_SIZE = 30
+
+# ponytail: la caché es lo único que sujeta cada PhotoImage —Tk recoge la
+# imagen que nadie referencia y deja el botón en blanco—, así que está
+# atada a la raíz Tk viva. Si algún día la app recrea la raíz, vaciarla.
+_ICONS: dict[tuple[str, int, str], ImageTk.PhotoImage] = {}
+
+
+def icon(
+    name: str, *, size: int = ICON_SIZE, color: str = COLOR_TEXT,
+) -> ImageTk.PhotoImage:
+    """An icon from :data:`ICON_DIR`, escalado y teñido de *color*.
+
+    El PNG es negro y un ``image=`` no obedece al ``fg`` del botón, así
+    que el color se pinta aquí: se conserva el canal alfa del dibujo y se
+    rellena el resto. Es lo que permite que un conmutador encendido
+    —fondo tinta— siga teniendo un icono visible.
+
+    Un nombre que no existe revienta: es una errata del programador, no
+    una entrada de usuario.
+    """
+    key = (name, size, color)
+    cached = _ICONS.get(key)
+    if cached is None:
+        source = Image.open(ICON_DIR / f"{name}.png").convert("RGBA")
+        source = source.resize((size, size), Image.LANCZOS)
+        tinted = Image.new("RGBA", source.size, color)
+        tinted.putalpha(source.getchannel("A"))
+        cached = _ICONS[key] = ImageTk.PhotoImage(tinted)
+    return cached
+
+
+# ----------------------------------------------------------------------
 # Buttons
 # ----------------------------------------------------------------------
 
@@ -314,13 +360,20 @@ def button(
     *,
     variant: str = "outline",
     tooltip: str | None = None,
+    icon_name: str | None = None,
+    icon_size: int = ICON_SIZE,
     size: int = 10,
     padx: int = 14,
     pady: int = 8,
     anchor: str = tk.CENTER,
     border_width: int = 1,
 ) -> tk.Button:
-    """A flat squared button in one of the system variants."""
+    """A flat squared button in one of the system variants.
+
+    Con *icon_name* el botón lleva un icono de :func:`icon`, teñido según
+    la variante y el estado. Sin *text*, el icono es el botón entero y el
+    *tooltip* pasa a ser la única etiqueta que hay.
+    """
     spec = _VARIANTS.get(variant, _VARIANTS["outline"])
     base_bg = spec["bg"] or _bg_of(parent)
     border = spec["border"]
@@ -348,6 +401,13 @@ def button(
     btn._base_bg = base_bg  # type: ignore[attr-defined]
     btn._hover_bg = spec["hover"]  # type: ignore[attr-defined]
     btn._border_width = border_width  # type: ignore[attr-defined]
+    btn._variant = variant  # type: ignore[attr-defined]
+    btn._icon = icon_name  # type: ignore[attr-defined]
+    btn._icon_size = icon_size  # type: ignore[attr-defined]
+    btn._icon_color = None  # type: ignore[attr-defined]
+    if icon_name:
+        btn.configure(compound=tk.LEFT if text else tk.NONE)
+        _paint_icon(btn)
 
     def on_enter(_e: object) -> None:
         if str(btn.cget("state")) != tk.DISABLED:
@@ -360,8 +420,31 @@ def button(
     btn.bind("<Leave>", on_leave)
     if tooltip:
         from src.views.toolbar import Tooltip
-        Tooltip(btn, tooltip)
+        # Se guarda: cuando el icono es la única etiqueta, cambiar de
+        # estado significa reescribir el tooltip.
+        btn._tip = Tooltip(btn, tooltip)  # type: ignore[attr-defined]
     return btn
+
+
+def _paint_icon(btn: tk.Button) -> None:
+    """Tiñe el icono del botón según su color, su variante y su estado.
+
+    El único sitio que decide el color: ``disabledforeground`` no toca
+    las imágenes, así que un botón icono-solo desactivado se vería igual
+    que uno activo si no se repintara a mano. Desactivado gana siempre —
+    un icono en acento y apagado sería una promesa falsa.
+    """
+    name = getattr(btn, "_icon", None)
+    if not name:
+        return
+    spec = _VARIANTS.get(getattr(btn, "_variant", "outline"), _VARIANTS["outline"])
+    if str(btn.cget("state")) == tk.DISABLED:
+        color = NEUTRAL_500
+    else:
+        color = getattr(btn, "_icon_color", None) or spec["fg"]
+    btn.configure(image=icon(
+        name, size=getattr(btn, "_icon_size", ICON_SIZE), color=color,
+    ))
 
 
 def restyle_button(btn: tk.Button, variant: str) -> None:
@@ -375,6 +458,7 @@ def restyle_button(btn: tk.Button, variant: str) -> None:
     width = getattr(btn, "_border_width", 1)
     btn._base_bg = base_bg  # type: ignore[attr-defined]
     btn._hover_bg = spec["hover"]  # type: ignore[attr-defined]
+    btn._variant = variant  # type: ignore[attr-defined]
     btn.configure(
         bg=base_bg, fg=spec["fg"],
         activebackground=spec["active"], activeforeground=spec["fg"],
@@ -384,6 +468,29 @@ def restyle_button(btn: tk.Button, variant: str) -> None:
         highlightbackground=border or base_bg,
         highlightcolor=border or base_bg,
     )
+    _paint_icon(btn)
+
+
+def set_icon(btn: tk.Button, name: str) -> None:
+    """Cambia el dibujo del botón —el ojo por el ojo tachado—."""
+    btn._icon = name  # type: ignore[attr-defined]
+    _paint_icon(btn)
+
+
+def set_icon_color(btn: tk.Button, color: str | None) -> None:
+    """Tiñe el icono al margen de la variante; ``None`` la devuelve.
+
+    Es cómo se enciende un conmutador de solo icono sin rellenar el
+    fondo: el acento se lo lleva el dibujo, no la caja.
+    """
+    btn._icon_color = color  # type: ignore[attr-defined]
+    _paint_icon(btn)
+
+
+def set_enabled(btn: tk.Button, enabled: bool) -> None:
+    """Activa o desactiva el botón, y repinta su icono para que se note."""
+    btn.configure(state=tk.NORMAL if enabled else tk.DISABLED)
+    _paint_icon(btn)
 
 
 # ----------------------------------------------------------------------

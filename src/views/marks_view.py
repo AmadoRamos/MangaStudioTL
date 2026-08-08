@@ -71,7 +71,17 @@ LOG_LINES = 3
 
 #: Right-hand tool dock. Narrower than the rail: it holds one column of
 #: buttons, and every pixel it takes comes off the page.
-TOOLS_DOCK_WIDTH = 186
+# Una tira de iconos, no una columna de etiquetas: regla 2 + pad 12 +
+# botón (icono 20 + 8·2 de padx + 2 de borde) + pad 12. Ajustable a ojo.
+TOOLS_DOCK_WIDTH = 62
+
+# Los dos conmutadores del dock dicen lo que hacen desde el tooltip, que
+# sin etiqueta es lo único que queda. Aquí y no dentro del método porque
+# el estado apagado se pone al construir y se repite al apagar.
+EDIT_TIP_OFF = "Agregar nueva área   E"
+EDIT_TIP_ON = "Agregando área: arrastra sobre la página   E"
+HIDE_TIP_ON = "Ocultar las marcas   H"
+HIDE_TIP_OFF = "Mostrar las marcas   H"
 
 
 class MarksView(tk.Frame):
@@ -287,30 +297,39 @@ class MarksView(tk.Frame):
         )
         self._tools_dock = dock
 
-        theme.kicker(body, "Herramientas", bg=SIDEBAR_BG).pack(
-            fill=tk.X, pady=(0, 9),
+        # Sin kickers: en 62 px no cabe la palabra «Herramientas». Lo que
+        # separa las herramientas del OCR es la regla de en medio, y lo
+        # que dice qué hace cada botón es su tooltip.
+        self._edit_btn = self._tool_button(
+            body, "draw-polygon-solid", EDIT_TIP_OFF, self._toggle_edit,
         )
-        self._edit_btn = self._tool_button(body, "Editar", "E", self._toggle_edit)
         self._visibility_btn = self._tool_button(
-            body, "Ocultar", "H", self._toggle_visibility,
+            body, "eye-slash-solid", HIDE_TIP_ON, self._toggle_visibility,
         )
-        self._undo_btn = self._tool_button(body, "Deshacer", "Z", self._undo)
-        self._clear_btn = self._tool_button(body, "Limpiar todo", "", self._clear_marks)
+        self._undo_btn = self._tool_button(
+            body, "clock-rotate-left-solid", "Deshacer la última marca   Z",
+            self._undo,
+        )
+        self._clear_btn = self._tool_button(
+            body, "trash-solid", "Limpiar todo: borra las marcas del capítulo",
+            self._clear_marks,
+        )
 
         theme.rule(body, thickness=2, color=COLOR_DIVIDER).pack(
-            fill=tk.X, pady=(14, 0),
+            fill=tk.X, pady=(8, 14),
         )
-        theme.kicker(body, "Texto", bg=SIDEBAR_BG).pack(fill=tk.X, pady=(12, 9))
         # OCR without leaving the step: the text can be checked here,
         # next to the page, before committing to the slow cleaning pass.
         self._ocr_btn = self._tool_button(
-            body, "Extraer texto", "", self._extract_text,
-            tooltip="Lee con Tesseract las marcas que aún no tienen texto",
+            body, "list-ul-solid",
+            "Extraer texto: lee con Tesseract las marcas que aún no lo tienen",
+            self._extract_text,
         )
         self._reocr_btn = self._tool_button(
-            body, "Re-extraer", "", self._extract_text_forced,
-            tooltip="Vuelve a leer todas las marcas, incluso las que ya "
-                    "tienen texto",
+            body, "list-check-solid",
+            "Re-extraer: vuelve a leer todas las marcas, incluso las que ya "
+            "tienen texto",
+            self._extract_text_forced,
         )
 
     def _show_tools_dock(self, visible: bool) -> None:
@@ -443,18 +462,25 @@ class MarksView(tk.Frame):
     def _tool_button(
         self,
         parent: tk.Misc,
-        label: str,
-        shortcut: str,
+        icon_name: str,
+        tooltip: str,
         command,
-        tooltip: str = "",
     ) -> tk.Button:
-        text = f"{label}   {shortcut}" if shortcut else label
+        """Un botón del dock: solo icono, y el tooltip por etiqueta.
+
+        El tooltip no es opcional — sin él el botón no dice nada— y lleva
+        dentro el atajo de teclado que antes iba pegado al texto.
+        """
         # Los dos conmutadores siguen pasando a «ink» cuando están
         # encendidos; «outline» es el estado apagado.
+        # Sin borde: seis recuadros en una tira de 62 px son seis cajas
+        # compitiendo con la página. Lo que marca el botón bajo el ratón
+        # es el fondo del hover, y el conmutador encendido sigue siendo
+        # «ink». `border_width` se guarda, así que restyle no lo repone.
         btn = theme.button(
-            parent, text, command,
-            variant="outline", size=9, padx=10, pady=8, anchor=tk.W,
-            tooltip=tooltip or None,
+            parent, "", command,
+            variant="outline", icon_name=icon_name, border_width=0,
+            padx=18, pady=18, tooltip=tooltip,
         )
         btn.pack(fill=tk.X, pady=(0, 6))
         return btn
@@ -1708,26 +1734,31 @@ class MarksView(tk.Frame):
                 return
         self._canvas.yview_moveto(max(0.0, (y - margin) / total))
 
-    def _toggle_edit(self) -> None:
-        if self._viewing_clean or self._running:
-            return
-        self._edit_state = not self._edit_state
+    def _set_edit(self, on: bool) -> None:
+        """El único sitio que enciende o apaga el modo de dibujo.
+
+        Lo apagan tres cosas —el botón, pasar a «Limpia» y arrancar la
+        tubería— y las dos últimas lo hacían a mano: el estado se iba
+        pero el botón se quedaba encendido y el cursor, en cruz.
+        """
+        self._edit_state = on
         if self._marks_canvas is not None:
-            self._marks_canvas.set_edit_mode(self._edit_state)
+            self._marks_canvas.set_edit_mode(on)
         if self._canvas is not None:
             try:
-                self._canvas.configure(
-                    cursor="crosshair" if self._edit_state else "",
-                )
+                self._canvas.configure(cursor="crosshair" if on else "")
             except Exception:
                 pass
         if self._edit_btn is not None:
-            theme.restyle_button(
-                self._edit_btn, "ink" if self._edit_state else "outline",
-            )
-            self._edit_btn.configure(
-                text="Editando   E" if self._edit_state else "Editar   E",
-            )
+            # Encendido = icono en acento, no caja rellena: el rojo ya es
+            # el color de «esto está activo» en toda la app.
+            theme.set_icon_color(self._edit_btn, COLOR_ACCENT if on else None)
+            self._edit_btn._tip.set_text(EDIT_TIP_ON if on else EDIT_TIP_OFF)
+
+    def _toggle_edit(self) -> None:
+        if self._viewing_clean or self._running:
+            return
+        self._set_edit(not self._edit_state)
 
     def _toggle_visibility(self) -> None:
         self._marks_visible = not self._marks_visible
@@ -1736,12 +1767,16 @@ class MarksView(tk.Frame):
         if self._mode == MODE_ALL:
             self._render_all_marks()
         if self._visibility_btn is not None:
-            theme.restyle_button(
+            theme.set_icon(
                 self._visibility_btn,
-                "outline" if self._marks_visible else "ink",
+                "eye-slash-solid" if self._marks_visible else "eye-solid",
             )
-            self._visibility_btn.configure(
-                text="Ocultar   H" if self._marks_visible else "Mostrar   H",
+            theme.set_icon_color(
+                self._visibility_btn,
+                None if self._marks_visible else COLOR_ACCENT,
+            )
+            self._visibility_btn._tip.set_text(
+                HIDE_TIP_ON if self._marks_visible else HIDE_TIP_OFF,
             )
 
     def _undo(self) -> None:
@@ -1803,9 +1838,7 @@ class MarksView(tk.Frame):
         keep = self._capture_view()
         self._viewing_clean = viewing_clean
         if viewing_clean:
-            self._edit_state = False
-            if self._marks_canvas is not None:
-                self._marks_canvas.set_edit_mode(False)
+            self._set_edit(False)
         if self._mode == MODE_ONE:
             self._load_current()
         else:
@@ -1929,7 +1962,7 @@ class MarksView(tk.Frame):
             s.save()
         self._running = True
         self._advance_after = advance
-        self._edit_state = False
+        self._set_edit(False)
         self._log_lines = []
         self._build_sidebar_sections()
         self._progress_rule.pack(
@@ -2055,22 +2088,23 @@ class MarksView(tk.Frame):
     # ------------------------------------------------------------------
 
     def _update_button_states(self) -> None:
+        # `theme.set_enabled` y no `configure(state=…)`: un icono no
+        # obedece a `disabledforeground`, así que hay que repintarlo o el
+        # botón apagado se ve idéntico al encendido.
         for btn in (self._edit_btn, self._visibility_btn):
             if btn is None:
                 continue
-            btn.configure(
-                state=(tk.DISABLED if self._viewing_clean else tk.NORMAL),
-            )
+            theme.set_enabled(btn, not self._viewing_clean)
         any_marks = self.workflow.total_marks() > 0
         for btn in (self._undo_btn, self._clear_btn):
             if btn is None:
                 continue
-            btn.configure(state=(tk.NORMAL if any_marks else tk.DISABLED))
+            theme.set_enabled(btn, any_marks)
         can_ocr = any_marks and self._engine.is_available()
         for btn in (self._ocr_btn, self._reocr_btn):
             if btn is None:
                 continue
-            btn.configure(state=(tk.NORMAL if can_ocr else tk.DISABLED))
+            theme.set_enabled(btn, can_ocr)
         self._update_continue_label()
 
     def _update_continue_label(self) -> None:

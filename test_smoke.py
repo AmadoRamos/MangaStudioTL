@@ -141,6 +141,65 @@ def test_button_variants() -> None:
             assert name in _VARIANTS, f"{path}: variante «{name}»"
 
 
+def test_tool_icons(root: tk.Tk) -> None:
+    """Los iconos del dock del paso 2: cargan, se tiñen y se cachean.
+
+    El tinte no es adorno: un PNG negro no obedece al `fg` del botón, así
+    que sin repintar, un conmutador encendido —fondo tinta— se queda sin
+    icono, y uno desactivado se ve igual que uno activo.
+    """
+    from src.views import theme
+
+    theme.init(root)
+    names = (
+        "draw-polygon-solid", "eye-solid", "eye-slash-solid",
+        "clock-rotate-left-solid", "trash-solid",
+        "list-ul-solid", "list-check-solid",
+    )
+    for name in names:
+        image = theme.icon(name)
+        assert image.width() == theme.ICON_SIZE, (name, image.width())
+
+    # La caché reparte por color: el mismo nombre en dos tintes son dos
+    # imágenes, y repetido es la misma.
+    claro = theme.icon("trash-solid", color="#ffffff")
+    assert claro is not theme.icon("trash-solid")
+    assert claro is theme.icon("trash-solid", color="#ffffff")
+
+    # Y un botón icono-solo cambia de dibujo al desactivarse, que es la
+    # regresión fácil: sigue funcionando igual, solo se ve mal.
+    btn = theme.button(
+        root, "", icon_name="trash-solid", tooltip="Limpiar todo",
+    )
+    encendido = str(btn.cget("image"))
+    fondo = str(btn.cget("bg"))
+    theme.set_enabled(btn, False)
+    assert str(btn.cget("image")) != encendido, "el icono no se apagó"
+    theme.set_enabled(btn, True)
+    assert str(btn.cget("image")) == encendido
+
+    # Un conmutador se enciende tiñendo el icono de acento, sin tocar el
+    # fondo. Y desactivado gana al acento: un icono rojo apagado sería una
+    # promesa falsa.
+    from src.config import COLOR_ACCENT
+
+    theme.set_icon_color(btn, COLOR_ACCENT)
+    acento = str(btn.cget("image"))
+    assert acento != encendido, "el acento no llegó al icono"
+    assert str(btn.cget("bg")) == fondo, "el fondo no debía cambiar"
+    theme.set_enabled(btn, False)
+    assert str(btn.cget("image")) not in (acento, encendido)
+    theme.set_enabled(btn, True)
+    assert str(btn.cget("image")) == acento
+    theme.set_icon_color(btn, None)
+    assert str(btn.cget("image")) == encendido
+
+    # Y el ojo se cambia por el ojo tachado sin tocar nada más.
+    theme.set_icon(btn, "eye-solid")
+    assert btn._icon == "eye-solid"
+    btn.destroy()
+
+
 def test_marks_wheel() -> None:
     """La rueda del paso 2: lo que la bloquea es el arrastre, no el modo.
 
@@ -510,6 +569,7 @@ if __name__ == "__main__":
         test_drop_data_splitting(root)
         test_dialog_answers(root)
         test_button_variants()
+        test_tool_icons(root)
         test_marks_wheel()
         test_wheel_dispatch()
         test_detail_panel(root)
