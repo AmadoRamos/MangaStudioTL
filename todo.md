@@ -9,42 +9,7 @@ funcionamiento del flujo, en [README.md](README.md).
 
 ---
 
-## 1 · Paso 4 (Render) · redimensionar el cuadro de la sección
-
-**Qué.** Poder cambiar el tamaño y la posición del cuadro de texto en el
-render, para colocarlo bien en el producto final.
-
-**Estado actual.** El cuadro de texto **es** la marca: el render usa
-`Mark.x/y/w/h` tal cual. Eso ata dos cosas que no deberían estarlo — la marca
-define *qué se borra* (paso 2) y aquí hace falta definir *dónde se escribe*.
-
-**Dónde.**
-
-- `TranslationEntry` — el desplazamiento del cuadro respecto a la marca
-  (`box_dx, box_dy, box_dw, box_dh`, todos `0` por defecto) en vez de
-  coordenadas absolutas: así, si el usuario mueve la marca en el paso 2, el
-  cuadro la sigue.
-- `src/views/translator_canvas.py` — tiradores para arrastrar y redimensionar,
-  como los del paso 2. El editor en el lienzo (`translator_canvas.py:325`) ya se
-  coloca con `place` sobre las coordenadas de la marca; pasa a usar las del
-  cuadro.
-- `src/views/render_view.py` — campos numéricos en el inspector y un
-  «restablecer al tamaño de la marca».
-- `src/utils/text_renderer.py` — nada nuevo, ya recibe `TextBox` con su
-  geometría.
-
-**A decidir.**
-
-- ¿El cuadro puede salirse del área que se limpió? Se puede, y el texto caería
-  sobre dibujo sin borrar. *Propuesta: dejar que se salga* —a veces es lo que
-  se quiere, un texto que rebasa el globo— pero avisar en el riel cuando pase.
-- Ahora que el margen de borrado es editable por marca, el área limpiada ya
-  no coincide con la caja. Conviene que el paso 4 pueda enseñarla de fondo
-  mientras se coloca el cuadro de texto.
-
----
-
-## 2 · Dejar el alert nativo y hacer uno con el estilo de la app
+## 1 · Dejar el alert nativo y hacer uno con el estilo de la app
 
 **Qué.** Sustituir `tkinter.messagebox` por un diálogo propio, con la tipografía,
 los colores y los botones del resto de la aplicación. El messagebox de Tk usa el
@@ -61,7 +26,7 @@ Cancelar» del sistema operativo. Es lo único que rompe el aspecto de la app.
 | `askyesno` | `marks_view.py:1648` | devuelve `bool`, bloquea |
 | `askokcancel` | `home_view.py:242`, `marks_view.py:1777`, `ocr_review_view.py:655` | devuelve `bool`, bloquea |
 
-Las otras 3 están en `base_marks_view.py` (código muerto, ver el punto 3).
+Las otras 3 están en `base_marks_view.py` (código muerto, ver el punto 2).
 
 **El patrón ya existe.** `src/views/export_dialog.py` es exactamente esto hecho
 a mano: `Toplevel` con `COLOR_BG`, borde de 2 px con `highlightthickness`,
@@ -99,7 +64,7 @@ trabajo es generalizarlo, no inventarlo.
 
 ---
 
-## 3 · Revisar el uso del tema
+## 2 · Revisar el uso del tema
 
 Del repaso de DESIGN.md contra el código. Nada de esto rompe la aplicación;
 son incoherencias con el sistema visual ya documentado.
@@ -109,7 +74,7 @@ y `base_marks_view.py` concentran casi todas las infracciones (`tk.Button`
 crudo, tuplas de fuente literales, `#666666`, `#9a9a9a`), pero el README ya los
 marca como *legacy, sin uso*: ningún módulo activo los importa. **A decidir: se
 borran o se dejan.** Borrarlos quita 3 de los 4 hallazgos de golpe, y también
-los 3 `messagebox` del punto 2.
+los 3 `messagebox` del punto 1.
 
 **Código vivo.**
 
@@ -141,7 +106,7 @@ página final, no la interfaz. Conviene anotarlo en DESIGN.md para que no se
 
 ---
 
-## 4 · Paso 2 (Marcar) · la rueda no desplaza mientras se marca
+## 3 · Paso 2 (Marcar) · la rueda no desplaza mientras se marca
 
 **Qué.** Con el modo de edición encendido —o sea, justo mientras se están
 añadiendo marcas— la rueda del ratón no mueve la imagen. Hay que apagar la
@@ -183,7 +148,7 @@ edición, desplazarse y volver a encenderla.
 
 ---
 
-## 5 · Paso 3 (Traducir) · el texto largo se corta en vez de seguir abajo
+## 4 · Paso 3 (Traducir) · el texto largo se corta en vez de seguir abajo
 
 **Qué.** Cuando una traducción no cabe en el ancho de la columna, el final
 desaparece. Debería continuar en otra línea.
@@ -257,6 +222,22 @@ desaparece. Debería continuar en otra línea.
   parezca roto. `bold`/`italic` son `None` mientras nadie los toque, que
   es justo la distinción sobre la que se construyeron después los
   perfiles de texto.
+- **Paso 4 · mover y redimensionar el cuadro de texto** — la marca dice
+  *qué se borra* y el cuadro *dónde se escribe*, que hasta ahora eran la
+  misma caja. Ocho tiradores sobre la sección seleccionada, los mismos
+  del paso 2: `move_rect` / `resize_rect` / `handle_centers` pasaron a
+  `zoomed_canvas.py`, que es el ancestro común, en vez de copiar el
+  volteo y los recortes en un segundo sitio donde se irían separando.
+  `TranslationEntry.box_offset` guarda `(dx, dy, dw, dh)` **contra la
+  marca**, así que mover la marca en el paso 2 se lleva el texto con
+  ella, y arrastrar el cuadro justo encima de la marca borra el
+  desplazamiento en vez de guardar cuatro ceros. Mientras esté
+  desplazado, la marca se dibuja punteada detrás y el riel avisa si el
+  cuadro se sale de lo que se limpió —se permite, pero ahí el texto cae
+  sobre dibujo—. `box_rect` es la mitad geométrica de `resolve_box`,
+  separada porque las pruebas de ratón la piden en cada movimiento y
+  resolver una fuente contra el disco para saber *dónde* está una caja
+  sería absurdo.
 - **Paso 4 · perfiles de texto** — un perfil («Diálogo», «Grito»…) guarda
   fuente, tamaño, color y estilo bajo un nombre, y se mete como capa
   intermedia de la precedencia: `sección > perfil > capítulo`. Asignarlo

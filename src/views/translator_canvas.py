@@ -25,7 +25,16 @@ import tkinter as tk
 from tkinter import font as tkfont
 from typing import Callable
 
-from src.config import COLOR_ACCENT, COLOR_TEXT
+from dataclasses import replace
+
+from src.config import (
+    COLOR_ACCENT,
+    COLOR_BG,
+    COLOR_TEXT,
+    MARK_MIN_SIZE,
+    NEUTRAL_500,
+    SUCCESS_COLOR,
+)
 from src.utils.logger import get_logger
 from src.utils.marks_store import MarksStore
 from src.utils.text_renderer import (
@@ -33,10 +42,19 @@ from src.utils.text_renderer import (
     RenderConfig,
     TextBox,
     _load_font,
+    box_rect,
     fit_text,
     resolve_box,
 )
-from src.views.zoomed_canvas import ZoomedCanvas
+from src.views.zoomed_canvas import (
+    HANDLE_SIZE,
+    HANDLES,
+    Rect,
+    ZoomedCanvas,
+    handle_centers,
+    move_rect,
+    resize_rect,
+)
 
 log = get_logger("translator_canvas")
 
@@ -136,6 +154,8 @@ class TranslatorCanvas(ZoomedCanvas):
         self._on_text_edited = on_text_edited
 
         self._box_canvas_ids: dict[int, list[int]] = {}
+        self._handle_ids: dict[str, int] = {}
+        self._transform: dict | None = None
         self._editor: tk.Text | None = None
         self._editor_mark_id: int | None = None
         self._layouts: dict[TextBox, _Layout] = {}
@@ -147,7 +167,10 @@ class TranslatorCanvas(ZoomedCanvas):
         self._config = RenderConfig()
         self._selected_mark_id: int | None = None
 
-        self._canvas.bind("<Button-1>", self._on_click)
+        self._canvas.bind("<ButtonPress-1>", self._on_press)
+        self._canvas.bind("<B1-Motion>", self._on_drag)
+        self._canvas.bind("<ButtonRelease-1>", self._on_release)
+        self._canvas.bind("<Motion>", self._on_motion)
         self._canvas.bind("<Double-1>", self._on_double_click)
         self._canvas.bind("<Button-3>", self._on_right_click)
 
@@ -200,6 +223,7 @@ class TranslatorCanvas(ZoomedCanvas):
             for cid in ids:
                 self._canvas.delete(cid)
         self._box_canvas_ids = {}
+        self._clear_handles()
         if self._store is None or self._image is None:
             return
         for mark_id, mark in enumerate(self._store):
@@ -216,8 +240,8 @@ class TranslatorCanvas(ZoomedCanvas):
                 max(6, int(round(layout.font_size * scale))), box.font_family,
                 bold=box.bold, italic=box.italic,
             )
-            x1, y1 = self.image_to_canvas(mark.x, mark.y)
-            x2, y2 = self.image_to_canvas(mark.x + mark.w, mark.y + mark.h)
+            x1, y1 = self.image_to_canvas(box.x, box.y)
+            x2, y2 = self.image_to_canvas(box.x + box.w, box.y + box.h)
             line_h = layout.line_h * scale
             total_h = line_h * len(layout.lines)
             cx1 = x1 + 2
@@ -243,6 +267,21 @@ class TranslatorCanvas(ZoomedCanvas):
             )
             ids.append(border)
             self._box_canvas_ids[mark_id] = ids
+
+        # Once the box has been dragged off its mark, the frame no longer
+        # says where the globo was. Show it on the selection, dashed, so
+        # there is something to place against.
+        rect = self._selected_rect()
+        if rect is not None and self._selected_mark_id is not None:
+            mark = self._store.marks[self._selected_mark_id]
+            if rect != (mark.x, mark.y, mark.w, mark.h):
+                mx1, my1 = self.image_to_canvas(mark.x, mark.y)
+                mx2, my2 = self.image_to_canvas(mark.x + mark.w, mark.y + mark.h)
+                self._handle_ids["_mark"] = self._canvas.create_rectangle(
+                    mx1, my1, mx2, my2,
+                    outline=NEUTRAL_500, width=1, dash=(4, 3),
+                )
+        self._draw_handles()
 
     def _layout_for(self, box: TextBox) -> _Layout:
         """The wrapped lines for a box, measured once per variation.
@@ -282,17 +321,120 @@ class TranslatorCanvas(ZoomedCanvas):
 
     # -------------------------------------------------------- selection
 
+    def _rect_of(self, mark_id: int) -> Rect | None:
+        """The text box of a section, in image pixels."""
+        if self._store is None or not 0 <= mark_id < len(self._store):
+            return None
+        return box_rect(
+            self._store.marks[mark_id], self._store.get_translation(mark_id),
+        )
+
     def _hit_test(self, cx: int, cy: int) -> int | None:
+        """Which section's box is under the cursor.
+
+        The box, not the mark: once the text has been dragged off the
+        globo, clicking the text is what selects it.
+        """
         if self._store is None or self._image is None:
             return None
         ix, iy = self.canvas_to_image(cx, cy)
-        for mark_id, mark in enumerate(self._store):
-            if mark.x <= ix <= mark.x + mark.w and mark.y <= iy <= mark.y + mark.h:
+        for mark_id in range(len(self._store)):
+            rect = self._rect_of(mark_id)
+            if rect is None:
+                continue
+            x, y, w, h = rect
+            if x <= ix <= x + w and y <= iy <= y + h:
                 return mark_id
         return None
 
-    def _on_click(self, event: tk.Event) -> None:
+    # ------------------------------------------------- move / resize
+
+    def _selected_rect(self) -> Rect | None:
+        if self._selected_mark_id is None:
+            return None
+        return self._rect_of(self._selected_mark_id)
+
+    def _handle_centers(self, rect: Rect) -> dict[str, tuple[float, float]]:
+        x, y, w, h = rect
+        x1, y1 = self.image_to_canvas(x, y)
+        x2, y2 = self.image_to_canvas(x + w, y + h)
+        return handle_centers(x1, y1, x2, y2)
+
+    def _clear_handles(self) -> None:
+        for hid in self._handle_ids.values():
+            self._canvas.delete(hid)
+        self._handle_ids = {}
+
+    def _draw_handles(self) -> None:
+        """Eight grips on the selected box — the affordance for resizing."""
+        rect = self._selected_rect()
+        if rect is None:
+            return
+        half = HANDLE_SIZE / 2
+        for anchor, (cx, cy) in self._handle_centers(rect).items():
+            self._handle_ids[anchor] = self._canvas.create_rectangle(
+                cx - half, cy - half, cx + half, cy + half,
+                outline=SUCCESS_COLOR, fill=COLOR_BG, width=2,
+            )
+
+    def _move_handles(self, rect: Rect) -> None:
+        half = HANDLE_SIZE / 2
+        for anchor, (cx, cy) in self._handle_centers(rect).items():
+            hid = self._handle_ids.get(anchor)
+            if hid is not None:
+                self._canvas.coords(
+                    hid, cx - half, cy - half, cx + half, cy + half,
+                )
+
+    def _hit_test_handle(self, cx: float, cy: float) -> str | None:
+        rect = self._selected_rect()
+        if rect is None:
+            return None
+        # A little larger than the drawn grip, so it is not fiddly.
+        for anchor, (hx, hy) in self._handle_centers(rect).items():
+            if abs(cx - hx) <= HANDLE_SIZE and abs(cy - hy) <= HANDLE_SIZE:
+                return anchor
+        return None
+
+    def _inside_selection(self, cx: float, cy: float) -> bool:
+        rect = self._selected_rect()
+        if rect is None:
+            return False
+        x, y, w, h = rect
+        x1, y1 = self.image_to_canvas(x, y)
+        x2, y2 = self.image_to_canvas(x + w, y + h)
+        return x1 <= cx <= x2 and y1 <= cy <= y2
+
+    def _on_motion(self, event: tk.Event) -> None:
+        """Say what a drag would do before the user commits to it."""
+        if self._transform is not None:
+            return
+        anchor = self._hit_test_handle(event.x, event.y)
+        if anchor is not None:
+            cursor = dict(HANDLES).get(anchor, "fleur")
+        elif self._inside_selection(event.x, event.y):
+            cursor = "fleur"
+        elif self._hit_test(event.x, event.y) is not None:
+            cursor = "hand2"
+        else:
+            cursor = ""
+        if self._canvas.cget("cursor") != cursor:
+            self._canvas.configure(cursor=cursor)
+
+    def _on_press(self, event: tk.Event) -> None:
         self._cancel_editor()
+        # Acting on the current selection wins over picking another box:
+        # the grips are only drawn there, so a click on one can mean
+        # nothing else.
+        rect = self._selected_rect()
+        if rect is not None:
+            anchor = self._hit_test_handle(event.x, event.y)
+            if anchor is not None:
+                self._begin_transform(rect, "resize", anchor, event)
+                return
+            if self._inside_selection(event.x, event.y):
+                self._begin_transform(rect, "move", None, event)
+                return
         hit = self._hit_test(event.x, event.y)
         self._selected_mark_id = hit
         self._render_overlay()
@@ -301,6 +443,76 @@ class TranslatorCanvas(ZoomedCanvas):
                 self._on_select(hit)
             except Exception as exc:
                 log.exception("Error en on_select: %s", exc)
+
+    def _begin_transform(
+        self, rect: Rect, mode: str, anchor: str | None, event: tk.Event,
+    ) -> None:
+        self._transform = {
+            "mode": mode,
+            "anchor": anchor,
+            "origin": self.canvas_to_image(event.x, event.y),
+            "rect": rect,
+        }
+
+    def _dragged_rect(self, event: tk.Event) -> Rect | None:
+        if self._transform is None or self._image is None:
+            return None
+        ox, oy = self._transform["origin"]
+        ix, iy = self.canvas_to_image(event.x, event.y)
+        dx, dy = ix - ox, iy - oy
+        rect: Rect = self._transform["rect"]
+        if self._transform["mode"] == "move":
+            return move_rect(rect, dx, dy, self._image.size)
+        return resize_rect(
+            rect, self._transform["anchor"], dx, dy,
+            self._image.size, MARK_MIN_SIZE,
+        )
+
+    def _on_drag(self, event: tk.Event) -> None:
+        rect = self._dragged_rect(event)
+        if rect is None or self._selected_mark_id is None:
+            return
+        # ponytail: only the frame follows the pointer; the text lands on
+        # release. Re-laying it out per frame means a binary search over
+        # font sizes per frame. Make the layout cache key on the box's
+        # shape rather than its position if live text is ever wanted.
+        ids = self._box_canvas_ids.get(self._selected_mark_id)
+        if ids:
+            x, y, w, h = rect
+            x1, y1 = self.image_to_canvas(x, y)
+            x2, y2 = self.image_to_canvas(x + w, y + h)
+            self._canvas.coords(ids[-1], x1, y1, x2, y2)
+        self._move_handles(rect)
+
+    def _on_release(self, event: tk.Event) -> None:
+        rect = self._dragged_rect(event)
+        transform = self._transform
+        mark_id = self._selected_mark_id
+        self._transform = None
+        if rect is None or transform is None or mark_id is None:
+            return
+        if rect == transform["rect"] or self._store is None:
+            # A click that did not move anything.
+            self._render_overlay()
+            return
+        entry = self._store.get_translation(mark_id)
+        if entry is None:
+            return
+        mark = self._store.marks[mark_id]
+        x, y, w, h = rect
+        offset = (x - mark.x, y - mark.y, w - mark.w, h - mark.h)
+        # Dragged exactly back onto the mark: that is «no offset», not an
+        # offset of zero, so the rail's «restablecer» goes away with it.
+        self._store.set_translation(
+            mark_id,
+            replace(
+                entry,
+                box_offset=None if offset == (0, 0, 0, 0) else offset,
+                edited=True,
+            ),
+        )
+        self._render_overlay()
+        self._notify_change()
 
     def _on_double_click(self, event: tk.Event) -> None:
         hit = self._hit_test(event.x, event.y)
@@ -322,11 +534,13 @@ class TranslatorCanvas(ZoomedCanvas):
         if self._store is None or not 0 <= mark_id < len(self._store):
             return
         self._cancel_editor()
-        mark = self._store.marks[mark_id]
         entry = self._store.get_translation(mark_id)
         initial = entry.text if entry else ""
-        x1, y1 = self.image_to_canvas(mark.x, mark.y)
-        x2, y2 = self.image_to_canvas(mark.x + mark.w, mark.y + mark.h)
+        # Over the box, not over the mark: the editor has to sit where
+        # the text is going to end up.
+        x, y, w, h = box_rect(self._store.marks[mark_id], entry)
+        x1, y1 = self.image_to_canvas(x, y)
+        x2, y2 = self.image_to_canvas(x + w, y + h)
         cw = max(int(x2 - x1), 60)
         ch = max(int(y2 - y1), 24)
         editor = tk.Text(

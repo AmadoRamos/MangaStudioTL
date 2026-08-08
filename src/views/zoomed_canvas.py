@@ -46,6 +46,85 @@ TALL_PAGE_FIT_LIMIT = 0.25
 SHARPEN_DELAY_MS = 140
 
 
+#: A rectangle in image pixels: ``(x, y, w, h)``.
+Rect = tuple[int, int, int, int]
+
+#: Side of the square resize grips, in canvas pixels.
+HANDLE_SIZE = 9
+#: Anchors, in the order they are drawn, with their cursor.
+HANDLES: tuple[tuple[str, str], ...] = (
+    ("nw", "size_nw_se"), ("n", "sb_v_double_arrow"), ("ne", "size_ne_sw"),
+    ("w", "sb_h_double_arrow"), ("e", "sb_h_double_arrow"),
+    ("sw", "size_ne_sw"), ("s", "sb_v_double_arrow"), ("se", "size_nw_se"),
+)
+
+
+def handle_centers(
+    x1: float, y1: float, x2: float, y2: float,
+) -> dict[str, tuple[float, float]]:
+    """Where the eight grips sit on a rectangle, in canvas pixels."""
+    mx, my = (x1 + x2) / 2, (y1 + y2) / 2
+    return {
+        "nw": (x1, y1), "n": (mx, y1), "ne": (x2, y1),
+        "w": (x1, my), "e": (x2, my),
+        "sw": (x1, y2), "s": (mx, y2), "se": (x2, y2),
+    }
+
+
+def move_rect(rect: Rect, dx: int, dy: int, bounds: tuple[int, int]) -> Rect:
+    """Slide a rectangle, keeping it whole and inside the image."""
+    x, y, w, h = rect
+    iw, ih = bounds
+    return (
+        max(0, min(x + dx, iw - w)),
+        max(0, min(y + dy, ih - h)),
+        w,
+        h,
+    )
+
+
+def resize_rect(
+    rect: Rect,
+    anchor: str | None,
+    dx: int,
+    dy: int,
+    bounds: tuple[int, int],
+    min_size: int,
+) -> Rect:
+    """Drag one grip of a rectangle. ``anchor`` is «nw», «s», «se»…
+
+    Dragging an edge past its opposite flips the box, which is what every
+    drawing tool does; normalising here keeps ``w``/``h`` positive.
+
+    Module level, like :func:`resample_for`, because both canvases resize
+    a rectangle the same way and this is fiddly enough that a second copy
+    would drift.
+    """
+    anchor = anchor or "se"
+    x, y, w, h = rect
+    iw, ih = bounds
+    x1, y1, x2, y2 = x, y, x + w, y + h
+    if "n" in anchor:
+        y1 += dy
+    if "s" in anchor:
+        y2 += dy
+    if "w" in anchor:
+        x1 += dx
+    if "e" in anchor:
+        x2 += dx
+    x1, x2 = max(0, min(x1, iw)), max(0, min(x2, iw))
+    y1, y2 = max(0, min(y1, ih)), max(0, min(y2, ih))
+    x, w = min(x1, x2), abs(x2 - x1)
+    y, h = min(y1, y2), abs(y2 - y1)
+    if w < min_size:
+        w = min(min_size, iw)
+        x = min(x, iw - w)
+    if h < min_size:
+        h = min(min_size, ih)
+        y = min(y, ih - h)
+    return (x, y, w, h)
+
+
 def resample_for(eff: float, fast: bool = False) -> int:
     """Cheap filters while the view is moving, good ones once it stops.
 

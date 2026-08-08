@@ -276,6 +276,19 @@ Tres reglas que valen para los cuatro pasos:
   dejar de escribir, sin esperar a que el campo pierda el foco
 - Clic en una sección de la imagen para seleccionarla; doble clic (o
   botón derecho) la edita sobre la propia imagen
+- **El cuadro de texto se puede mover y redimensionar**, con los mismos
+  ocho tiradores del paso 2: arrastra dentro para moverlo, un tirador
+  para cambiar su tamaño. La marca dice *qué se borra*; el cuadro, *dónde
+  se escribe*, y son dos cosas distintas
+- Lo que se guarda es la **diferencia respecto a la marca**, no
+  coordenadas absolutas: si luego vuelves al paso 2 y mueves la marca, el
+  cuadro va con ella. Devolverlo justo encima de la marca lo deja como
+  estaba, sin desplazamiento
+- Mientras el cuadro esté desplazado, la marca se dibuja detrás **con
+  línea punteada** para tener contra qué colocarlo, y el riel enseña
+  **Cuadro de texto** con su ↺. Si el cuadro se sale de lo que se limpió,
+  lo dice — se permite (un grito que rebasa el globo es algo que se
+  quiere) pero ahí el texto cae sobre dibujo sin borrar
 - **◀ Anterior / Siguiente ▶** del inspector recorre las secciones de la
   página y **desplaza la vista hasta la que selecciona**; lo mismo al
   cambiar de página con `◀ n/N ▶`
@@ -363,8 +376,10 @@ Cubre las piezas que no se ven al usar la app: el reparto de eventos de
 `BackgroundWorker` (incluido que `detach()` descarte lo que quede en
 cola), el troceo de rutas del drag & drop, la regla de precedencia de
 `resolve_box` —incluido que editar un perfil no pise lo que la sección
-eligió— y la ida y vuelta de `text_profiles.json`, con sus casos feos: un
-perfil sin nombre, un nombre duplicado y un archivo que no es JSON.
+eligió—, la ida y vuelta de `text_profiles.json` con sus casos feos (un
+perfil sin nombre, un nombre duplicado, un archivo que no es JSON) y la
+geometría que comparten los dos lienzos: mover y redimensionar con su
+recorte, el volteo al cruzar un lado y el tamaño mínimo.
 Imprime `OK` o revienta con un `assert`. No hay framework de pruebas y
 no hace falta uno para esto.
 
@@ -403,7 +418,8 @@ Cada imagen genera un sidecar `<imagen>.marks.json` con:
       "font_family": "Arial",
       "max_pt": 24,
       "bold": true,
-      "profile": "Grito"
+      "profile": "Grito",
+      "box_offset": [0, -30, 0, 20]
     }
   }
 }
@@ -424,6 +440,11 @@ valores: por eso editar un perfil alcanza a las secciones que lo usan. Un
 nombre que ya no exista se lee como «ninguno», no como error. Los perfiles
 en sí viven aparte, en `text_profiles.json` en la raíz del proyecto, porque
 son de quien rotula y no de un capítulo.
+
+`box_offset` es `[dx, dy, dw, dh]` **contra la marca**, no coordenadas
+absolutas. La marca define qué se borra y el cuadro dónde se escribe;
+guardar la diferencia es lo que hace que mover la marca en el paso 2 se
+lleve el texto con ella. Ausente significa «el cuadro es la marca».
 
 `padding` es el margen de borrado de esa marca, en píxeles de la imagen, y
 también es opcional: **la clave solo aparece si el usuario la tocó**. Sin

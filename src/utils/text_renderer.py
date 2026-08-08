@@ -443,6 +443,21 @@ def _first_set(*layers):
     return None
 
 
+def box_rect(
+    mark: Mark, entry: TranslationEntry | None,
+) -> tuple[int, int, int, int]:
+    """Where the text goes, without working out what it looks like.
+
+    The mark says *what gets erased*; the box says *where it is written*,
+    and the entry stores the difference. Split out of ``resolve_box``
+    because hit tests and cursors ask this on every mouse move, and
+    resolving a font family against the disk to answer «where is this
+    box» would be absurd.
+    """
+    dx, dy, dw, dh = (entry.box_offset if entry else None) or (0, 0, 0, 0)
+    return (mark.x + dx, mark.y + dy, max(1, mark.w + dw), max(1, mark.h + dh))
+
+
 def resolve_box(
     mark: Mark, entry: TranslationEntry, config: RenderConfig,
 ) -> TextBox:
@@ -469,11 +484,12 @@ def resolve_box(
         bool(config.asked(entry, "bold")),
         bool(config.asked(entry, "italic")),
     )
+    x, y, w, h = box_rect(mark, entry)
     return TextBox(
-        x=mark.x,
-        y=mark.y,
-        w=mark.w,
-        h=mark.h,
+        x=x,
+        y=y,
+        w=w,
+        h=h,
         text=entry.text,
         color=_first_set(config.asked(entry, "color"), config.color),
         max_pt=_first_set(config.asked(entry, "max_pt"), config.max_pt),

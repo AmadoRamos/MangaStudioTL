@@ -44,6 +44,7 @@ from src.utils.marks_store import MarksStore, TranslationEntry
 from src.utils.text_profiles import TextProfile
 from src.utils.text_renderer import (
     RenderConfig,
+    box_rect,
     list_available_families,
     resolve_box,
     resolve_style,
@@ -229,11 +230,33 @@ class RenderView(tk.Frame):
 
         asked_max = self._config.asked(entry, "max_pt")
         max_pt = asked_max if asked_max is not None else self._config.max_pt
+        bx, by, bw, bh = box_rect(mark, entry)
         theme.body(
             self._inspector,
-            f"{mark.w} × {mark.h} px · auto-fit hasta {max_pt} pt",
+            f"{bw} × {bh} px · auto-fit hasta {max_pt} pt",
             size=8, bg=SIDEBAR_BG, fg=NEUTRAL_600,
         ).pack(fill=tk.X, pady=(6, 10))
+
+        # The box only earns a row of its own once it has left the mark;
+        # while the two are the same there is nothing to say about it.
+        if entry.box_offset:
+            self._label_row("Cuadro de texto", "box_offset", pady=(0, 2))
+            note = "Movido respecto a la marca."
+            pad = mark.erase_padding
+            if (
+                bx < mark.x - pad or by < mark.y - pad
+                or bx + bw > mark.x + mark.w + pad
+                or by + bh > mark.y + mark.h + pad
+            ):
+                # Deliberate — a shout that overflows its globo is a real
+                # thing to want — but the text out there lands on art
+                # nobody erased, so the rail says so instead of the
+                # export being the first to mention it.
+                note += " Sobresale de lo que se limpió: ahí el texto cae sobre dibujo."
+            theme.body(
+                self._inspector, note,
+                size=8, bg=SIDEBAR_BG, fg=NEUTRAL_600, wrap=210,
+            ).pack(fill=tk.X, pady=(0, 10))
 
         # Text.
         theme.field_label(self._inspector, "Texto").pack(fill=tk.X, pady=(0, 5))

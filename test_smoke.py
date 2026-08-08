@@ -127,6 +127,61 @@ def test_profile_layer() -> None:
     assert resolve_box(mark, orphan, config).max_pt == 36
 
 
+def test_rect_geometry() -> None:
+    """Mover y redimensionar un rectángulo: recorte, volteo y mínimo.
+
+    Las usan los dos lienzos —las marcas del paso 2 y el cuadro de texto
+    del paso 4—, así que una regresión aquí rompe los dos.
+    """
+    from src.views.zoomed_canvas import move_rect, resize_rect
+
+    bounds = (1000, 800)
+
+    # Mover se detiene en el borde sin encoger la caja.
+    assert move_rect((10, 10, 100, 50), -50, -50, bounds) == (0, 0, 100, 50)
+    assert move_rect((900, 700, 100, 50), 500, 500, bounds) == (900, 750, 100, 50)
+
+    # Cada tirador mueve solo sus lados.
+    rect = (100, 100, 200, 100)
+    assert resize_rect(rect, "se", 50, 20, bounds, 5) == (100, 100, 250, 120)
+    assert resize_rect(rect, "nw", 50, 20, bounds, 5) == (150, 120, 150, 80)
+    assert resize_rect(rect, "n", 0, 20, bounds, 5) == (100, 120, 200, 80)
+
+    # Arrastrar un lado más allá del opuesto voltea la caja, no la rompe:
+    # w y h siguen siendo positivos.
+    assert resize_rect(rect, "e", -300, 0, bounds, 5) == (0, 100, 100, 100)
+
+    # Y nunca queda más pequeña que el mínimo.
+    assert resize_rect(rect, "se", -199, 0, bounds, 5) == (100, 100, 5, 100)
+
+
+def test_box_offset() -> None:
+    """El cuadro de texto se guarda como diferencia contra la marca."""
+    import json
+    from dataclasses import replace
+
+    from src.utils.text_renderer import box_rect
+
+    mark = Mark(x=100, y=100, w=200, h=80, color="#ec3013")
+    entry = TranslationEntry(text="hola", source_lang="en", target_lang="es")
+
+    # Sin desplazamiento el cuadro *es* la marca — y una sección sin
+    # traducción todavía también.
+    assert box_rect(mark, entry) == (100, 100, 200, 80)
+    assert box_rect(mark, None) == (100, 100, 200, 80)
+
+    moved = replace(entry, box_offset=(20, -40, 60, 0))
+    assert box_rect(mark, moved) == (120, 60, 260, 80)
+
+    # Es la razón de guardar la diferencia: mover la marca en el paso 2
+    # se lleva el cuadro con ella en vez de descolocar el texto.
+    assert box_rect(replace(mark, x=500), moved) == (520, 60, 260, 80)
+
+    # Y sobrevive al viaje por el sidecar, donde la tupla es una lista.
+    data = json.loads(json.dumps(moved.to_dict()))
+    assert TranslationEntry.from_dict(data) == moved
+
+
 def test_profiles_round_trip(tmp_file) -> None:
     """Lo que se escribe se vuelve a leer; lo ilegible es «no hay perfiles»."""
     from src.utils import text_profiles
@@ -167,6 +222,8 @@ if __name__ == "__main__":
         test_drop_data_splitting(root)
         test_box_precedence()
         test_profile_layer()
+        test_rect_geometry()
+        test_box_offset()
         with tempfile.TemporaryDirectory() as tmp:
             test_profiles_round_trip(Path(tmp) / "text_profiles.json")
     finally:

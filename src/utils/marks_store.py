@@ -208,14 +208,24 @@ def opt_int(raw: Any) -> int | None:
         return None
 
 
-def opt_color(raw: Any) -> tuple[int, int, int] | None:
-    """Un ``[r, g, b]`` del JSON como tupla, o ``None``."""
-    if not isinstance(raw, (list, tuple)) or len(raw) < 3:
+def _opt_ints(raw: Any, count: int) -> tuple[int, ...] | None:
+    """Los ``count`` primeros enteros de una lista del JSON, o ``None``."""
+    if not isinstance(raw, (list, tuple)) or len(raw) < count:
         return None
     try:
-        return (int(raw[0]), int(raw[1]), int(raw[2]))
+        return tuple(int(v) for v in raw[:count])
     except (TypeError, ValueError):
         return None
+
+
+def opt_color(raw: Any) -> tuple[int, int, int] | None:
+    """Un ``[r, g, b]`` del JSON como tupla, o ``None``."""
+    return _opt_ints(raw, 3)  # type: ignore[return-value]
+
+
+def opt_offset(raw: Any) -> tuple[int, int, int, int] | None:
+    """Un ``[dx, dy, dw, dh]`` del JSON como tupla, o ``None``."""
+    return _opt_ints(raw, 4)  # type: ignore[return-value]
 
 
 @dataclass(frozen=True)
@@ -230,6 +240,12 @@ class TranslationEntry:
 
     ``profile`` holds the profile's *name*, never a copy of its values —
     otherwise editing a profile could not reach the sections using it.
+
+    ``box_offset`` is ``(dx, dy, dw, dh)`` against the mark, not absolute
+    coordinates: the mark says *what gets erased* and the box says
+    *where the text goes*, and storing the difference means a mark
+    nudged in step 2 takes its text box with it. ``None`` is «the box is
+    the mark», which is what every section starts as.
     """
 
     text: str
@@ -244,6 +260,7 @@ class TranslationEntry:
     bold: bool | None = None
     italic: bool | None = None
     profile: str | None = None
+    box_offset: tuple[int, int, int, int] | None = None
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -267,6 +284,7 @@ class TranslationEntry:
             bold=opt_bool(data.get("bold")),
             italic=opt_bool(data.get("italic")),
             profile=(str(data["profile"]) if data.get("profile") else None),
+            box_offset=opt_offset(data.get("box_offset")),
         )
 
 

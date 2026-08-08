@@ -23,7 +23,14 @@ from src.config import (
 )
 from src.utils.logger import get_logger
 from src.utils.marks_store import Mark, MarksStore
-from src.views.zoomed_canvas import ZoomedCanvas
+from src.views.zoomed_canvas import (
+    HANDLE_SIZE,
+    HANDLES,
+    ZoomedCanvas,
+    handle_centers,
+    move_rect,
+    resize_rect,
+)
 
 log = get_logger("marks_canvas")
 
@@ -33,16 +40,8 @@ HoverCallback = Callable[[int, str], None]
 LeaveCallback = Callable[[], None]
 GeometryCallback = Callable[[int, Mark], None]
 
-#: Side of the square resize handles, in canvas pixels.
-HANDLE_SIZE = 9
 #: Dash pattern of the box showing the area that will be erased.
 MARK_PAD_DASH = (4, 3)
-#: Anchors, in the order they are drawn, with their cursor.
-HANDLES: tuple[tuple[str, str], ...] = (
-    ("nw", "size_nw_se"), ("n", "sb_v_double_arrow"), ("ne", "size_ne_sw"),
-    ("w", "sb_h_double_arrow"), ("e", "sb_h_double_arrow"),
-    ("sw", "size_ne_sw"), ("s", "sb_v_double_arrow"), ("se", "size_nw_se"),
-)
 
 
 class MarksCanvas(ZoomedCanvas):
@@ -218,12 +217,7 @@ class MarksCanvas(ZoomedCanvas):
     def _handle_centers(self, mark: Mark) -> dict[str, tuple[float, float]]:
         x1, y1 = self.image_to_canvas(mark.x, mark.y)
         x2, y2 = self.image_to_canvas(mark.x + mark.w, mark.y + mark.h)
-        mx, my = (x1 + x2) / 2, (y1 + y2) / 2
-        return {
-            "nw": (x1, y1), "n": (mx, y1), "ne": (x2, y1),
-            "w": (x1, my), "e": (x2, my),
-            "sw": (x1, y2), "s": (mx, y2), "se": (x2, y2),
-        }
+        return handle_centers(x1, y1, x2, y2)
 
     def _draw_handles(self) -> None:
         """Eight grips on the selection — the affordance for resizing."""
@@ -339,8 +333,9 @@ class MarksCanvas(ZoomedCanvas):
 
     @staticmethod
     def _moved(mark: Mark, dx: int, dy: int, iw: int, ih: int) -> Mark:
-        x = max(0, min(mark.x + dx, iw - mark.w))
-        y = max(0, min(mark.y + dy, ih - mark.h))
+        x, y, _w, _h = move_rect(
+            (mark.x, mark.y, mark.w, mark.h), dx, dy, (iw, ih),
+        )
         # ``replace`` rather than a fresh Mark: rebuilding field by field
         # is how a mark silently loses whatever it carries besides its
         # geometry — today its margin.
@@ -350,29 +345,10 @@ class MarksCanvas(ZoomedCanvas):
     def _resized(
         mark: Mark, anchor: str | None, dx: int, dy: int, iw: int, ih: int,
     ) -> Mark:
-        anchor = anchor or "se"
-        x1, y1 = mark.x, mark.y
-        x2, y2 = mark.x + mark.w, mark.y + mark.h
-        if "n" in anchor:
-            y1 += dy
-        if "s" in anchor:
-            y2 += dy
-        if "w" in anchor:
-            x1 += dx
-        if "e" in anchor:
-            x2 += dx
-        x1, x2 = max(0, min(x1, iw)), max(0, min(x2, iw))
-        y1, y2 = max(0, min(y1, ih)), max(0, min(y2, ih))
-        # Dragging an edge past its opposite flips the box, which is what
-        # every drawing tool does; normalising here keeps w/h positive.
-        x, w = min(x1, x2), abs(x2 - x1)
-        y, h = min(y1, y2), abs(y2 - y1)
-        if w < MARK_MIN_SIZE:
-            w = min(MARK_MIN_SIZE, iw)
-            x = min(x, iw - w)
-        if h < MARK_MIN_SIZE:
-            h = min(MARK_MIN_SIZE, ih)
-            y = min(y, ih - h)
+        x, y, w, h = resize_rect(
+            (mark.x, mark.y, mark.w, mark.h), anchor, dx, dy, (iw, ih),
+            MARK_MIN_SIZE,
+        )
         return replace(mark, x=x, y=y, w=w, h=h)
 
     def _drag_transform(self, event: tk.Event) -> None:
