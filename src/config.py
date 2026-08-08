@@ -31,7 +31,6 @@ COLOR_ACCENT: str = "#ec3013"
 COLOR_DIVIDER: str = "#9f9d9d"
 
 NEUTRAL_100: str = "#f8f4f4"
-NEUTRAL_200: str = "#eae7e7"
 NEUTRAL_300: str = "#d7d3d3"
 NEUTRAL_400: str = "#bab6b6"
 NEUTRAL_500: str = "#9b9797"
@@ -49,11 +48,6 @@ ACCENT_800: str = "#7c1405"
 # mockups) so the scan itself is the brightest thing on screen.
 CANVAS_BG: str = NEUTRAL_900
 
-# Spacing scale.
-SPACE_2: int = 8
-SPACE_3: int = 12
-SPACE_4: int = 16
-
 # --------------------------------------------------------------------
 # Semantic colours
 # --------------------------------------------------------------------
@@ -65,11 +59,6 @@ ERROR_COLOR: str = ACCENT_700
 SUCCESS_COLOR: str = COLOR_ACCENT
 
 SUPPORTED_EXTENSIONS: tuple[str, ...] = (".jpg", ".jpeg", ".png")
-
-FILE_DIALOG_IMAGE_TYPES: list[tuple[str, str]] = [
-    ("Imágenes", "*.jpg *.jpeg *.png"),
-    ("Todos los archivos", "*.*"),
-]
 
 MARK_DEFAULT_COLOR: str = COLOR_ACCENT
 MARK_COLORS: tuple[str, ...] = (
@@ -112,8 +101,6 @@ INPAINT_MIN_PADDING: int = 16
 INPAINT_MAX_PADDING: int = 256
 INPAINT_CLUSTER_GAP: int = 32
 
-CLEAN_CACHE_MAX_BYTES: int = 128 * 1024 * 1024
-
 SIDEBAR_WIDTH: int = 260
 SIDEBAR_BG: str = COLOR_SURFACE
 SIDEBAR_ACTIVE_BG: str = COLOR_ACCENT
@@ -122,10 +109,6 @@ SIDEBAR_SUBTLE_FG: str = NEUTRAL_600
 SIDEBAR_SECTION_PAD: int = 12
 SIDEBAR_VIEW_PAD: int = 12
 RECENT_PATHS_FILE: str = ".last_folder"
-
-POPOVER_BG: str = COLOR_BG
-POPOVER_BORDER: str = COLOR_TEXT
-POPOVER_PAD: int = 12
 
 TRANSLATION_DIR_NAME: str = "traducciones"
 TRANSLATION_SUFFIX: str = ".translated.png"
@@ -178,7 +161,6 @@ TEXT_RENDER_FALLBACK_FAMILIES: tuple[str, ...] = (
     "Georgia",
     "Courier New",
 )
-TEXT_RENDER_DEFAULT_USER_MAX_PT: int = 36
 TEXT_RENDER_USER_MAX_PT_MIN: int = 10
 TEXT_RENDER_USER_MAX_PT_MAX: int = 96
 

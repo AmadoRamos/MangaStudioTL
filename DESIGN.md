@@ -44,8 +44,8 @@ This is what makes a manga page readable next to a light UI.
 
 **Nothing floats over the canvas.** Every control lives in a docked strip
 — the top bar, the rail, the right-hand tool dock, the footer. A
-floating toolbar covers the very thing the user is working on.
-(`floating_bar.py` is the abandoned attempt; nothing imports it.)
+floating toolbar covers the very thing the user is working on. The
+abandoned attempt at one (`floating_bar.py`) has been deleted.
 
 ---
 
@@ -67,28 +67,40 @@ Tk has no alpha on widget borders, so the blend has to be baked in.
 
 ### Ramps
 
-`NEUTRAL_100…900` and `ACCENT_100…800` are the two ramps. In practice
-only a handful carry weight:
+`NEUTRAL_*` and `ACCENT_*` are the two ramps. Only the rungs something
+actually uses are declared — an unused colour is a decision nobody has
+made yet, not a gap to fill:
 
 | Token | Used for |
 | --- | --- |
+| `NEUTRAL_100` | zebra stripe in the translation table |
 | `NEUTRAL_300` | button hover, meter track, `neutral` tag fill |
 | `NEUTRAL_400` | button pressed, dashed drop-zone border |
 | `NEUTRAL_500` | disabled text, a pending step's chip, the rail's scrollbar thumb |
 | `NEUTRAL_600` | kickers, secondary/hint text |
 | `NEUTRAL_700` | body text on the rail |
+| `NEUTRAL_900` | the dark canvas, via `CANVAS_BG` |
 | `ACCENT_100/200` | tinted backgrounds — table selection, `accent` tag |
 | `ACCENT_600/700` | button hover / pressed on `primary`; error text |
+| `ACCENT_800` | text on a low-confidence row; the darkest mark colour |
 
 **Never mix a neutral into an accent role, or the reverse.** A muted dot
 means "engine missing"; the red is spent on the card that says what to do
 about it, not on the dot.
 
-### Legacy aliases
+### Semantic names
 
-`BG_COLOR`, `FG_COLOR`, `PANEL_BG`, `BTN_BG`… still exist and are used in
-~58 places. They are aliases of the tokens above, kept so nothing broke
-during the port. **New code uses the token names.**
+Three names are **not** aliases of a token — they say what the colour
+*means*, which the token name alone does not:
+
+| Name | Value | Means |
+| --- | --- | --- |
+| `BTN_FG` | `#ffffff` | text on a filled accent button |
+| `ERROR_COLOR` | `ACCENT_700` | something went wrong |
+| `SUCCESS_COLOR` | `COLOR_ACCENT` | something completed |
+
+Everything else uses the token names directly. The old `BG_COLOR` /
+`FG_COLOR` / `PANEL_BG` / `BTN_BG` aliases from the port are gone.
 
 ---
 
@@ -133,7 +145,7 @@ if you find yourself typing one of these into a view, use the constant.
 | Left rail | 260 px, fixed | `SIDEBAR_WIDTH` |
 | Right tool dock (step 2) | 186 px, fixed | `TOOLS_DOCK_WIDTH` |
 | Top bar | 42 px + 2 px rule | `theme.TopBar(height=…)` |
-| Footer hint bar | 36 px + 2 px rule | `theme.HintBar` |
+| Footer status bar | 2 px rule + one padded line | `toolbar.StatusBar` |
 | Rail section padding | 12 px | `SIDEBAR_SECTION_PAD` |
 | Structural rule | 2 px | `theme.rule(thickness=2)` |
 | Inner divider | 1–2 px, `COLOR_DIVIDER` | `theme.rule(color=…)` |
@@ -143,10 +155,10 @@ if you find yourself typing one of these into a view, use the constant.
 Fixed-width panels need `pack_propagate(False)`, or Tk shrinks the frame
 to fit its children and the rail collapses.
 
-> **Note.** `SPACE_1…SPACE_8` (4/8/12/16/24/32) are declared in
-> `config.py` and **used nowhere** — padding is currently written as
-> literals. Either adopt the scale or drop the tokens; do not add a third
-> convention.
+> **Note.** Padding is written as literals. A `SPACE_1…SPACE_8` scale
+> used to sit in `config.py` unused by anything and has been removed. If
+> you want a spacing scale, adopt it everywhere in one pass — a scale
+> that half the views ignore is a third convention, not a system.
 
 ---
 
@@ -164,7 +176,7 @@ Every step is the same frame:
 │ [sections  │                                      │ (step 2)││
 │  of the    │                                      └─────────┘│
 │  step]     ├─────────────────────────────────────────────────┤
-│ ─────────  │  HintBar — status left, shortcuts right         │
+│ ─────────  │  StatusBar — status left, shortcuts right       │
 │ [ACTION →] └─────────────────────────────────────────────────┘
 │  consequence
 └────────────┘
@@ -206,7 +218,6 @@ Everything in `theme.py`. Build with these; do not instantiate a raw
 | `body(parent, text, size=, fg=, wrap=)` | everything else |
 | `field_label(parent, text)` | the label above an input, 9 |
 | `rule(parent, thickness=, color=, vertical=)` | a structural line |
-| `spacer(parent)` | flexible gap that pushes what follows to the bottom |
 
 ### Controls
 
@@ -214,7 +225,7 @@ Everything in `theme.py`. Build with these; do not instantiate a raw
 | --- | --- |
 | `button(...)` | the five variants — see §7 |
 | `SegmentedBar` | a bordered strip where exactly one option is active |
-| `option_menu` / `set_option_values` | a dropdown; `indicatoron=False`, so it reads as a flat field |
+| `option_menu` | a dropdown; `indicatoron=False`, so it reads as a flat field |
 | `slider(from_, to, variable)` | value hidden (`showvalue=False`) — show it yourself in the label if it matters |
 | `checkbox(text, variable)` | |
 | `entry` / `text_area` | 1 px divider border that turns **accent on focus**; the caret is accent too |
@@ -229,9 +240,12 @@ Everything in `theme.py`. Build with these; do not instantiate a raw
 | `Meter(height=, color=)` | a progress rule: neutral track, solid fill, no text |
 | `DashedZone` | a dashed-border drop area (§9) |
 | `TopBar` | the 42 px strip + its rule; children go in `.body`, `.gap()` pushes the rest right |
-| `HintBar` | the footer: `set_left()` for status, `set_right()` for shortcuts |
-| `StatusBar` (in `toolbar.py`) | the older footer, same shape, with levels |
+| `StatusBar` (in `toolbar.py`) | the footer: `set(text, level)` for status, `set_hint()` for shortcuts |
 | `Tooltip` (in `toolbar.py`) | 450 ms delay; `button(tooltip=…)` wires it for you |
+
+`toolbar.py` holds only those two. Its old button factories
+(`make_button`, `make_color_swatch`, `ToolbarBar`…) predate this design
+system and have been deleted — `theme.py` is the only vocabulary.
 
 ---
 

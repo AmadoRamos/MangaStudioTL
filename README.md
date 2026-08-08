@@ -282,6 +282,7 @@ Tres reglas que valen para los cuatro pasos:
 .
 ├── main.py                  Entrada de la app
 ├── run.bat                  Lanzador para Windows
+├── test_smoke.py            Comprobación rápida (python test_smoke.py)
 ├── requirements.txt
 ├── logs/                    Se crea al primer arranque
 └── src/
@@ -290,25 +291,22 @@ Tres reglas que valen para los cuatro pasos:
     ├── workflow/
     │   └── controller.py    Estado del workflow lineal + transiciones
     ├── utils/
-    │   ├── background_worker.py   Base para runners con polling Tk
+    │   ├── background_worker.py   Base para workers con polling Tk
     │   ├── clean_queue.py         Cola de limpieza en segundo plano,
     │   │                           propiedad del App (no de una vista)
     │   ├── crop_manager.py
     │   ├── dnd_handler.py
     │   ├── exporter.py            PNGs + sidecar JSON (con overrides per-sección)
     │   ├── image_loader.py
-    │   ├── inpaint_runner.py
     │   ├── inpainter.py           LaMa wrapper + huella y caducidad de
     │   │                           la versión limpia
     │   ├── logger.py
-    │   ├── lru_cache.py
     │   ├── marks_store.py         Sidecars JSON (schema v5) con marcas,
     │   │                           OCR, traducciones, color/family/max_pt
     │   │                           y clean_signature
-    │   ├── ocr_engine.py
-    │   ├── ocr_runner.py
-    │   ├── pipeline_runner.py     OCR en su propio hilo, secuencial y
-    │   │                           con progreso por marca
+    │   ├── ocr_engine.py          Wrapper de Tesseract
+    │   ├── pipeline_runner.py     OCR del capítulo: recorta, lee y escribe
+    │   │                           en el store, todo en su propio hilo
     │   ├── recent_paths.py
     │   ├── text_renderer.py       Auto-fit de fuente (búsqueda binaria)
     │   ├── translation_runner.py  Worker para Argos
@@ -328,15 +326,27 @@ Tres reglas que valen para los cuatro pasos:
         ├── translator_canvas.py   Canvas con texto editable (paso 4)
         ├── export_dialog.py       Diálogo de «Finalizar y exportar»
         ├── zoomed_canvas.py       Base de zoom/pan con render por viewport
-        ├── toolbar.py             Tooltip + StatusBar
-        ├── popover.py
-        ├── floating_bar.py        (legacy, sin uso)
-        ├── marks_panel.py         (legacy, sin uso)
-        └── base_marks_view.py     (legacy, sin uso)
+        └── toolbar.py             Tooltip + StatusBar
 ```
 
-`floating_bar.py`, `marks_panel.py` y `base_marks_view.py` quedaron sin
-usar al acoplar los controles: ningún módulo activo los importa.
+Tres workers, no cinco. `OcrRunner` e `InpaintRunner` existían como
+workers propios y nadie los llamaba: el OCR lo hace `PipelineRunner` en
+su hilo y la limpieza la hace `CleanQueue`. Los módulos legacy que
+quedaron sin uso al acoplar los controles (`base_marks_view.py`,
+`marks_panel.py`, `popover.py`, `floating_bar.py`, `lru_cache.py`)
+están borrados.
+
+### Comprobación rápida
+
+```bash
+python test_smoke.py
+```
+
+Cubre las dos piezas de fontanería que no se ven al usar la app: el
+reparto de eventos de `BackgroundWorker` (incluido que `detach()`
+descarte lo que quede en cola) y el troceo de rutas del drag & drop.
+Imprime `OK` o revienta con un `assert`. No hay framework de pruebas y
+no hace falta uno para esto.
 
 ---
 
@@ -346,7 +356,7 @@ Cada imagen genera un sidecar `<imagen>.marks.json` con:
 
 ```json
 {
-  "version": 4,
+  "version": 5,
   "image": "0001_989fa3f1.jpg",
   "marks": [
     { "x": 100, "y": 50, "w": 200, "h": 80, "color": "#ffcc00",
@@ -553,15 +563,23 @@ más alta del capítulo, para que el encuadre valga para todas.
 
 ## Notas técnicas
 
-- **Background workers**: `OcrRunner`, `InpaintRunner`, `TranslationRunner` y
-  `PipelineRunner` heredan de `BackgroundWorker`, que usa una cola
+- **Background workers**: `PipelineRunner`, `TranslationRunner` y
+  `CleanQueue` heredan de `BackgroundWorker`, que usa una cola
   thread-safe y `widget.after()` para entregar eventos al hilo de Tk.
-  La cola solo se vacía si una vista hizo `attach()`, así que **un worker
-  no puede anidar a otro**: los eventos del de dentro se pierden. Por eso
-  `PipelineRunner` hace el OCR en su propio hilo, con los helpers
-  síncronos de `OcrRunner` (`resolve_lang`, `recognize_spec`), y escribe
-  cada resultado en el sidecar en cuanto sale — `MarksStore.save()` está
-  protegido por un lock, así que escribir desde ese hilo es seguro
+  El hilo encola `self._emit("_on_done", …)` —el nombre del callback,
+  no un objeto de evento— y el `_poll` del widget lo resuelve **en el
+  momento de despachar**, así que un callback registrado más tarde por
+  un `attach()` posterior sigue ganando. Antes cada worker declaraba sus
+  propias dataclasses de evento y una cadena de `isinstance` para
+  repartirlas: unas 250 líneas que solo movían argumentos de un hilo a
+  otro
+- **La cola solo se vacía si alguien hizo `attach()`**, así que **un
+  worker no puede anidar a otro**: los eventos del de dentro se pierden.
+  Por eso `PipelineRunner` hace el OCR él mismo —recorta, llama a
+  Tesseract y escribe el resultado en el sidecar en cuanto sale, todo en
+  su hilo— en vez de delegarlo a un segundo worker y esperarlo.
+  `MarksStore.save()` está protegido por un lock, así que escribir desde
+  ese hilo es seguro
 - **`CleanQueue` la posee el `App`, no una vista.** Es el mismo problema
   visto por el otro lado: los eventos de un worker solo los vacía el
   widget que hizo `attach()`, y una vista además hace `detach()` y
