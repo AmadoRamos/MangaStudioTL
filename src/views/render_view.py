@@ -40,7 +40,11 @@ from src.utils.exporter import export_translations
 from src.utils.inpainter import find_clean, has_clean
 from src.utils.logger import get_logger
 from src.utils.marks_store import MarksStore, TranslationEntry
-from src.utils.text_renderer import list_available_families, resolve_style
+from src.utils.text_renderer import (
+    RenderConfig,
+    list_available_families,
+    resolve_style,
+)
 from src.views import theme
 from src.views.export_dialog import ExportDialog
 from src.views.toolbar import StatusBar
@@ -68,8 +72,11 @@ class RenderView(tk.Frame):
         self._clean_cache: dict[int, Image.Image] = {}
         self._selected_mark: int | None = None
 
-        self._font_family: str = workflow.font_family
-        self._max_pt: int = workflow.max_pt
+        self._config = RenderConfig(
+            font_family=workflow.font_family,
+            max_pt=workflow.max_pt,
+            color=TEXT_RENDER_DEFAULT_COLOR,
+        )
         self._font_options: list[str] = self._build_font_options()
 
         # Rail widgets.
@@ -88,11 +95,7 @@ class RenderView(tk.Frame):
         self._build_ui()
         self._build_sidebar_sections()
         self._load_current()
-        self._canvas.set_render_config(
-            font_family=self._font_family,
-            max_pt=self._max_pt,
-            default_color=TEXT_RENDER_DEFAULT_COLOR,
-        )
+        self._canvas.set_render_config(self._config)
 
     # ------------------------------------------------------------------
     # Content
@@ -211,7 +214,7 @@ class RenderView(tk.Frame):
             head, f"{position} / {len(sections)}", kind="accent",
         ).pack(side=tk.RIGHT)
 
-        max_pt = entry.max_pt if entry.max_pt is not None else self._max_pt
+        max_pt = entry.max_pt if entry.max_pt is not None else self._config.max_pt
         theme.body(
             self._inspector,
             f"{mark.w} × {mark.h} px · auto-fit hasta {max_pt} pt",
@@ -230,7 +233,7 @@ class RenderView(tk.Frame):
         # Font.
         theme.field_label(self._inspector, "Fuente").pack(fill=tk.X, pady=(0, 5))
         self._font_var = tk.StringVar(
-            value=entry.font_family or self._font_family,
+            value=entry.font_family or self._config.font_family,
         )
         theme.option_menu(
             self._inspector, self._font_var, self._font_options,
@@ -296,7 +299,7 @@ class RenderView(tk.Frame):
         theme.field_label(self._inspector, "Color").pack(fill=tk.X, pady=(0, 5))
         self._swatch_row = tk.Frame(self._inspector, bg=SIDEBAR_BG)
         self._swatch_row.pack(fill=tk.X)
-        current = entry.color or TEXT_RENDER_DEFAULT_COLOR
+        current = entry.color or self._config.color
         for color in TEXT_COLOR_PRESETS:
             theme.swatch(
                 self._swatch_row, _rgb_to_hex(color),
@@ -457,7 +460,7 @@ class RenderView(tk.Frame):
         """
         if self._style_note is None or entry is None:
             return
-        family = entry.font_family or self._font_family
+        family = entry.font_family or self._config.font_family
         drawn_bold, drawn_italic = resolve_style(
             family, bool(entry.bold), bool(entry.italic),
         )
@@ -499,7 +502,7 @@ class RenderView(tk.Frame):
     def _pick_color(self) -> None:
         entry = self._current_entry()
         initial = _rgb_to_hex(
-            entry.color if entry and entry.color else TEXT_RENDER_DEFAULT_COLOR,
+            entry.color if entry and entry.color else self._config.color,
         )
         result = colorchooser.askcolor(
             color=initial, title="Color del texto", parent=self,
@@ -634,7 +637,7 @@ class RenderView(tk.Frame):
         merged: list[str] = []
         seen: set[str] = set()
         for family in [
-            self._font_family, *TEXT_RENDER_FALLBACK_FAMILIES,
+            self._config.font_family, *TEXT_RENDER_FALLBACK_FAMILIES,
             *list_available_families(),
         ]:
             name = (family or "").strip()
@@ -643,7 +646,7 @@ class RenderView(tk.Frame):
                 continue
             seen.add(key)
             merged.append(name)
-        return merged or [self._font_family]
+        return merged or [self._config.font_family or "Segoe UI"]
 
     # ------------------------------------------------------------------
     # Export
@@ -676,8 +679,7 @@ class RenderView(tk.Frame):
                 items=self._items,
                 stores=self._stores,
                 out_dir=out_dir,
-                font_family=self._font_family,
-                max_pt=self._max_pt,
+                config=self._config,
             )
         except Exception as exc:
             log.exception("Error exportando: %s", exc)

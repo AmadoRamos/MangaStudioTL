@@ -38,6 +38,7 @@ from src.config import (
     TEXT_RENDER_STROKE,
 )
 from src.utils.logger import get_logger
+from src.utils.marks_store import Mark, TranslationEntry
 
 log = get_logger("text_renderer")
 
@@ -380,6 +381,50 @@ class TextBox:
 class FitResult:
     font_size: int
     lines: list[str]
+
+
+@dataclass(frozen=True)
+class RenderConfig:
+    """The chapter-wide layer a section falls back to.
+
+    Every field has a per-section counterpart on
+    :class:`~src.utils.marks_store.TranslationEntry` that stays ``None``
+    until somebody touches it.
+    """
+
+    font_family: str | None = None
+    max_pt: int = TEXT_RENDER_MAX_PT
+    color: tuple[int, int, int] = TEXT_RENDER_DEFAULT_COLOR
+
+
+def resolve_box(
+    mark: Mark, entry: TranslationEntry, config: RenderConfig,
+) -> TextBox:
+    """The box a section is actually drawn with.
+
+    Precedence: what the section says beats ``config``, and ``None`` on
+    the entry means «sin tocar», not «puesto igual que el defecto».
+
+    The style that comes back is the one that will be *drawn*, not the
+    one that was asked for: a family with no bold on disk yields
+    ``bold=False``. That is the whole point of having one resolver — the
+    preview, the exported PNG and the sidecar cannot disagree about a
+    colour or a variant they did not each work out for themselves.
+    """
+    family = entry.font_family or config.font_family
+    bold, italic = resolve_style(family, bool(entry.bold), bool(entry.italic))
+    return TextBox(
+        x=mark.x,
+        y=mark.y,
+        w=mark.w,
+        h=mark.h,
+        text=entry.text,
+        color=entry.color or config.color,
+        max_pt=entry.max_pt if entry.max_pt is not None else config.max_pt,
+        font_family=family,
+        bold=bold,
+        italic=italic,
+    )
 
 
 # --- fit_text / render ---------------------------------------------------

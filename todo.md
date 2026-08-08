@@ -23,34 +23,45 @@ implementar y probar:
 valor puesto a mano en la sección  >  perfil asignado  >  RenderConfig global
 ```
 
-**Estado actual.** `RenderConfig` (`src/utils/text_renderer.py:225`) es la capa
-global; `TranslationEntry` es la capa específica, y sus campos son `None`
-cuando no se han tocado — que es justo lo que hace falta para distinguir «no
-puesto» de «puesto igual que el perfil». Esa distinción es toda la funcionalidad;
-si un campo se rellena al asignar el perfil, la regla de precedencia se pierde.
+**Estado actual.** El resolvedor ya está: `resolve_box(mark, entry, config)`
+(`src/utils/text_renderer.py`) es el único sitio donde la capa específica gana a
+la global, y `RenderConfig` es esa capa global — que hasta ahora eran dos
+atributos sueltos en el controlador (`controller.py:53-54`) copiados a mano en
+tres módulos. El exportador, el lienzo y el inspector lo llaman a él.
 
-**Dónde.**
+`TranslationEntry` es la capa específica y sus campos son `None` cuando no se
+han tocado — que es justo lo que hace falta para distinguir «no puesto» de
+«puesto igual que el perfil». Esa distinción es toda la funcionalidad; si un
+campo se rellena al asignar el perfil, la regla de precedencia se pierde.
+
+**Lo que queda.**
 
 - Modelo del perfil: `nombre, font_family, max_pt, color, bold, italic`.
 - `TranslationEntry` — `profile: str | None`, guardando el **nombre**, no una
   copia de los valores.
-- Dónde viven los perfiles: son del usuario, no del capítulo. Un JSON junto a
-  `recent_paths` (`src/utils/recent_paths.py` sirve de patrón) en vez de dentro
-  de cada sidecar.
-- `src/views/render_view.py` — selector de perfil en el inspector, más un
-  «restablecer» por campo que devuelve el campo a `None` (o sea, al perfil).
-- El resolvedor: una función que recibe entrada + perfil + config global y
-  devuelve el `TextBox` final. Un solo sitio, no un `or` repartido por la vista.
+- Dónde viven los perfiles: son del usuario, no del capítulo. Un JSON propio en
+  la raíz. `json.dump` / `json.load` sobre un dict y poco más: `recent_paths.py`
+  es largo por normalizar rutas de Windows y descartar carpetas borradas, nada
+  de lo cual aplica aquí.
+- `resolve_box` pasa a recibir el perfil como capa intermedia:
+  `entrada > perfil > RenderConfig`. Un parámetro más, no una cuarta copia de
+  la regla.
+- `src/views/render_view.py` — selector de perfil en el inspector, un
+  «restablecer» por campo que devuelve el campo a `None` (o sea, al perfil), un
+  «Guardar como perfil…» que toma los valores de la sección seleccionada y un
+  «Aplicar a toda la página».
 
-**A decidir.**
+**Decidido.**
 
-- ¿Se puede asignar un perfil a **todas** las secciones de la página o del
-  capítulo de una vez? Es el caso de uso obvio («todo esto es diálogo») y
-  cambia el diseño de la interfaz.
-- Cuando se edita un perfil ya asignado, ¿las secciones que lo usan se
-  actualizan? Con la precedencia de arriba, sí y gratis: solo cambian los
-  campos que la sección no había tocado.
-- ¿Perfiles de fábrica al arrancar, o la lista empieza vacía?
+- **Asignar a varias secciones**: botón «Aplicar a toda la página» en el
+  inspector que ya existe, no una superficie nueva. Todo el capítulo de golpe,
+  si hace falta, después.
+- **Editar un perfil actualiza las secciones que lo usan**: sí, y sale gratis
+  porque la entrada guarda el nombre. Solo cambian los campos que la sección no
+  había tocado.
+- **Perfiles de fábrica**: ninguno. La lista empieza vacía y se llena con
+  «Guardar como perfil…» desde una sección real, en vez de con cuatro juegos de
+  valores inventados que nadie pidió.
 
 ---
 
@@ -301,6 +312,15 @@ desaparece. Debería continuar en otra línea.
   cuando la familia no tiene la variante en vez de que el conmutador
   parezca roto. `bold`/`italic` son `None` mientras nadie los toque, que
   es justo la distinción que necesitan los perfiles del punto 1.
+- **Un solo resolvedor de estilo** — `resolve_box(mark, entry, config)` en
+  `text_renderer.py` es el único sitio donde «lo que puso la sección» gana a
+  «lo que dice el capítulo», y `RenderConfig` es esa capa global. Antes la regla
+  estaba copiada en el exportador, en el lienzo y cuatro veces sueltas en el
+  inspector, y ya no coincidían: la exportación dibujaba en negro puro y la
+  vista previa en `#201E1D`, porque `export_translations` tenía su propio
+  `text_color=(0,0,0)` por defecto que nadie le pasaba. El `TextBox` que
+  devuelve lleva el estilo **que se va a dibujar**, no el que se pidió, así que
+  la vista previa, el PNG y el sidecar no pueden discrepar.
 - **Paso 1 · el botón abre solo la carpeta** — se quitó el
   `askopenfilenames` que iba delante (`app.py:423`), el rótulo pasó a «Abrir
   carpeta» y el diálogo usa `mustexist=True`. Arrastrar imágenes sueltas

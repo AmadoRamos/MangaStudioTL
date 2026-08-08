@@ -19,15 +19,16 @@ from typing import Callable
 
 from PIL import Image
 
-from src.config import (
-    TEXT_RENDER_MAX_PT,
-    TRANSLATION_SIDECAR_SUFFIX,
-    TRANSLATION_SUFFIX,
-)
+from src.config import TRANSLATION_SIDECAR_SUFFIX, TRANSLATION_SUFFIX
 from src.utils.inpainter import find_clean
 from src.utils.logger import get_logger
 from src.utils.marks_store import MarksStore
-from src.utils.text_renderer import TextBox, render_text, resolve_style
+from src.utils.text_renderer import (
+    RenderConfig,
+    TextBox,
+    render_text,
+    resolve_box,
+)
 
 log = get_logger("exporter")
 
@@ -47,9 +48,7 @@ def export_translations(
     items: list[tuple[Path, Image.Image]],
     stores: list[MarksStore],
     out_dir: Path,
-    text_color: tuple[int, int, int] = (0, 0, 0),
-    font_family: str | None = None,
-    max_pt: int | None = None,
+    config: RenderConfig = RenderConfig(),
     on_progress: ProgressCallback | None = None,
 ) -> list[ExportResult]:
     """Render and write the translated images.
@@ -108,33 +107,8 @@ def export_translations(
             if entry is None or not entry.text.strip():
                 skipped += 1
                 continue
-            # Per-section overrides win over the global config.
-            section_color = entry.color or text_color
-            section_family = entry.font_family or font_family
-            section_max_pt = (
-                entry.max_pt
-                if entry.max_pt is not None
-                else (max_pt if max_pt is not None else TEXT_RENDER_MAX_PT)
-            )
-            # No hay capa global de estilo: «sin tocar» es redonda.
-            section_bold = bool(entry.bold)
-            section_italic = bool(entry.italic)
-            drawn_bold, drawn_italic = resolve_style(
-                section_family, section_bold, section_italic,
-            )
-            boxes.append(TextBox(
-                x=mark.x,
-                y=mark.y,
-                w=mark.w,
-                h=mark.h,
-                text=entry.text,
-                color=section_color,
-                align="center",
-                font_family=section_family,
-                max_pt=section_max_pt,
-                bold=section_bold,
-                italic=section_italic,
-            ))
+            box = resolve_box(mark, entry, config)
+            boxes.append(box)
             translated += 1
             sidecar_payload.append({
                 "mark_id": mark_id,
@@ -148,14 +122,14 @@ def export_translations(
                 "engine": entry.engine,
                 "edited": entry.edited,
                 "ran_at": entry.ran_at,
-                "color": list(section_color),
-                "font_family": section_family,
-                "max_pt": section_max_pt,
-                # Lo que se dibujó, no lo que se pidió: si la familia no
-                # tiene la variante instalada, el PNG salió en redonda y
-                # el sidecar debe decir eso.
-                "bold": drawn_bold,
-                "italic": drawn_italic,
+                # Lo que se dibujó, no lo que se pidió: `resolve_box` ya
+                # descartó la variante que la familia no tenga instalada,
+                # y el sidecar debe decir lo que salió en el PNG.
+                "color": list(box.color),
+                "font_family": box.font_family,
+                "max_pt": box.max_pt,
+                "bold": box.bold,
+                "italic": box.italic,
             })
 
         rendered = render_text(base, boxes) if boxes else base

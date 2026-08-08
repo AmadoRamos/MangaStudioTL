@@ -1,12 +1,11 @@
 """Canvas that displays a clean image with editable translated text boxes.
 
 Subclasses :class:`ZoomedCanvas` for pan/zoom. Each mark rectangle is
-rendered as a text box with the translation inside, with the color /
-font family / size taken from the :class:`TranslationEntry` if set
-(per-section override) or the global render config otherwise. Bold and
-italic come from the entry too, but only once ``resolve_style`` has
-confirmed the family really has that variant on disk — Tk would happily
-fake a slant that the exported PNG is not going to have.
+rendered as a text box with the translation inside. What that box looks
+like is ``resolve_box``'s answer, not this module's: the same function
+the exporter calls, so the preview cannot drift from the PNG. It also
+means the style reaching Tk is the one that exists on disk — Tk would
+happily fake a slant that the exported PNG is not going to have.
 
 Double-click on a box opens an inline ``Text`` editor placed on top of
 the canvas. ``Enter`` (or ``Ctrl+Enter``) commits the edit;
@@ -26,21 +25,16 @@ import tkinter as tk
 from tkinter import font as tkfont
 from typing import Callable
 
-from src.config import (
-    COLOR_ACCENT,
-    COLOR_TEXT,
-    TEXT_RENDER_DEFAULT_COLOR,
-    TEXT_RENDER_MIN_PT,
-    TEXT_RENDER_STROKE,
-)
+from src.config import COLOR_ACCENT, COLOR_TEXT
 from src.utils.logger import get_logger
 from src.utils.marks_store import MarksStore
 from src.utils.text_renderer import (
     FitResult,
+    RenderConfig,
     TextBox,
     _load_font,
     fit_text,
-    resolve_style,
+    resolve_box,
 )
 from src.views.zoomed_canvas import ZoomedCanvas
 
@@ -145,12 +139,12 @@ class TranslatorCanvas(ZoomedCanvas):
         self._editor: tk.Text | None = None
         self._editor_mark_id: int | None = None
         self._layouts: dict[TextBox, _Layout] = {}
-        self._tk_fonts: dict[tuple[str, int, bool, bool], tkfont.Font] = {}
+        self._tk_fonts: dict[
+            tuple[str | None, int, bool, bool], tkfont.Font
+        ] = {}
 
-        # Live font configuration; updated via set_render_config.
-        self._font_family: str = "Segoe UI"
-        self._max_pt: int = 36
-        self._default_color: tuple[int, int, int] = TEXT_RENDER_DEFAULT_COLOR
+        # The chapter-wide layer; updated via set_render_config.
+        self._config = RenderConfig()
         self._selected_mark_id: int | None = None
 
         self._canvas.bind("<Button-1>", self._on_click)
@@ -166,25 +160,11 @@ class TranslatorCanvas(ZoomedCanvas):
         self._tk_fonts.clear()
         self._render_overlay()
 
-    def set_render_config(
-        self,
-        *,
-        font_family: str | None = None,
-        max_pt: int | None = None,
-        default_color: tuple[int, int, int] | None = None,
-    ) -> None:
-        changed = False
-        if font_family is not None and font_family != self._font_family:
-            self._font_family = font_family
-            changed = True
-        if max_pt is not None and max_pt != self._max_pt:
-            self._max_pt = max_pt
-            changed = True
-        if default_color is not None and default_color != self._default_color:
-            self._default_color = default_color
-            changed = True
-        if changed:
-            self._render_overlay()
+    def set_render_config(self, config: RenderConfig) -> None:
+        if config == self._config:
+            return
+        self._config = config
+        self._render_overlay()
 
     def refresh(self) -> None:
         """Redraw the boxes after the store changed under our feet.
@@ -226,27 +206,15 @@ class TranslatorCanvas(ZoomedCanvas):
             entry = self._store.get_translation(mark_id)
             if entry is None or not entry.text.strip():
                 continue
-            color = entry.color or self._default_color
-            family = entry.font_family or self._font_family
-            max_pt = entry.max_pt if entry.max_pt is not None else self._max_pt
-            bold, italic = resolve_style(
-                family, bool(entry.bold), bool(entry.italic),
-            )
-            box = TextBox(
-                x=mark.x, y=mark.y, w=mark.w, h=mark.h,
-                text=entry.text, color=color,
-                align="center", max_pt=max_pt,
-                min_pt=TEXT_RENDER_MIN_PT, stroke=TEXT_RENDER_STROKE,
-                font_family=family, bold=bold, italic=italic,
-            )
-            layout = self._layout_for(box, family)
+            box = resolve_box(mark, entry, self._config)
+            layout = self._layout_for(box)
             # The layout is measured in image pixels; the preview is
             # drawn in canvas pixels, so every size and offset is scaled
             # by the current zoom before it reaches the canvas.
             scale = self._effective_scale()
             tk_font = self._tk_font(
-                max(6, int(round(layout.font_size * scale))), family,
-                bold=bold, italic=italic,
+                max(6, int(round(layout.font_size * scale))), box.font_family,
+                bold=box.bold, italic=box.italic,
             )
             x1, y1 = self.image_to_canvas(mark.x, mark.y)
             x2, y2 = self.image_to_canvas(mark.x + mark.w, mark.y + mark.h)
@@ -254,7 +222,7 @@ class TranslatorCanvas(ZoomedCanvas):
             total_h = line_h * len(layout.lines)
             cx1 = x1 + 2
             cy1 = y1 + max(0.0, ((y2 - y1) - total_h) / 2)
-            text_color = _rgb_to_hex(color)
+            text_color = _rgb_to_hex(box.color)
             ids: list[int] = []
             for line, line_w, line_x_offset in layout.lines:
                 tx = cx1 + ((x2 - x1) - 4 - line_w * scale) / 2
@@ -276,7 +244,7 @@ class TranslatorCanvas(ZoomedCanvas):
             ids.append(border)
             self._box_canvas_ids[mark_id] = ids
 
-    def _layout_for(self, box: TextBox, family: str) -> _Layout:
+    def _layout_for(self, box: TextBox) -> _Layout:
         """The wrapped lines for a box, measured once per variation.
 
         Keyed on the whole box, so the style is part of the key: a bold
@@ -286,7 +254,7 @@ class TranslatorCanvas(ZoomedCanvas):
         if layout is None:
             fit = fit_text(box)
             layout = _Layout(fit, _load_font(
-                fit.font_size, family=family,
+                fit.font_size, family=box.font_family,
                 bold=box.bold, italic=box.italic,
             ))
             if len(self._layouts) >= _LAYOUT_CACHE_LIMIT:
@@ -295,7 +263,7 @@ class TranslatorCanvas(ZoomedCanvas):
         return layout
 
     def _tk_font(
-        self, size: int, family: str, *, bold: bool = False,
+        self, size: int, family: str | None, *, bold: bool = False,
         italic: bool = False,
     ) -> tkfont.Font:
         """A Tk font per (family, style, píxel size).
