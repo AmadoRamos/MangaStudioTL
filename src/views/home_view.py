@@ -221,7 +221,6 @@ class HomeView(tk.Frame):
         translator = getattr(app, "_translator", None) if app else None
         if translator is None:
             return
-        from tkinter import messagebox
         pair = f"{TRANSLATION_DEFAULT_SRC}→{TRANSLATION_DEFAULT_TGT}"
         if translator.is_pair_available(
             TRANSLATION_DEFAULT_SRC, TRANSLATION_DEFAULT_TGT,
@@ -229,20 +228,21 @@ class HomeView(tk.Frame):
             # Nothing to download — the rail was stale, so refresh it
             # instead of claiming an install that never happened.
             self._build_sidebar_sections()
-            messagebox.showinfo(
+            theme.alert(
+                self,
                 "Par ya instalado",
                 f"El par {pair} ya estaba instalado. Motores actualizado.",
-                parent=self,
             )
             return
 
         # The download blocks the UI thread for a few hundred MB; say so
         # before the window stops repainting.
-        if not messagebox.askokcancel(
+        if not theme.confirm(
+            self,
             "Descargar par de idiomas",
             f"Se descargará el modelo {pair} (~300 MB).\n"
             "La ventana quedará sin responder hasta que termine.",
-            parent=self,
+            confirm_label="Descargar",
         ):
             return
         self.config(cursor="watch")
@@ -254,17 +254,14 @@ class HomeView(tk.Frame):
         finally:
             self.config(cursor="")
         if ok:
-            messagebox.showinfo(
-                "Par listo",
-                f"Par {pair} instalado.",
-                parent=self,
-            )
+            theme.alert(self, "Par listo", f"Par {pair} instalado.")
             self._build_sidebar_sections()
         else:
-            messagebox.showwarning(
+            theme.alert(
+                self,
                 "No se pudo descargar",
                 "No se pudo instalar el par. Revisa logs/app.log.",
-                parent=self,
+                level="error",
             )
 
     # ------------------------------------------------------------------

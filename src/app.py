@@ -221,7 +221,7 @@ class App:
                 pass
         except Exception as exc:
             log.exception("Error creando vista: %s", exc)
-            messagebox_safe(str(exc))
+            messagebox_safe(str(exc), self.root)
 
     def set_context(self, text: str | None = None) -> None:
         """Mirror the mockups' title-bar context line into the OS title."""
@@ -369,20 +369,23 @@ class App:
             self.workflow.reload_stores()
 
     def _open_files_drop(self, paths: list[str]) -> None:
-        from tkinter import messagebox
         try:
             from src.utils import image_loader
             path_objs = [Path(p) for p in paths]
             expanded = image_loader.expand_paths(path_objs)
             items, failed = image_loader.load_images_with_paths(expanded)
             if failed:
-                messagebox.showwarning(
-                    "Algunas imagenes no pudieron cargarse",
+                theme.alert(
+                    self.root,
+                    "Algunas imágenes no pudieron cargarse",
                     f"No se pudieron abrir {len(failed)} archivo(s).",
+                    level="error",
                 )
             if not items:
-                messagebox.showinfo(
-                    "Sin imagenes", "No se encontraron imagenes validas.",
+                theme.alert(
+                    self.root,
+                    "Sin imágenes",
+                    "No se encontraron imágenes válidas en lo que se abrió.",
                 )
                 return
             # Every way in lands here, so this is the one place that has
@@ -398,7 +401,7 @@ class App:
             self.workflow.go_to(WorkflowStep.MARKS)
         except Exception as exc:
             log.exception("Error en drop: %s", exc)
-            messagebox_safe(str(exc))
+            messagebox_safe(str(exc), self.root)
 
     def _prompt_open_files(self) -> None:
         """Ask for the chapter's folder, and only that.
@@ -422,19 +425,19 @@ class App:
                 self._open_files_drop([folder])
         except Exception as exc:
             log.exception("Error abriendo dialogo: %s", exc)
-            messagebox_safe(f"No se pudo abrir el dialogo:\n{exc}")
+            messagebox_safe(f"No se pudo abrir el dialogo:\n{exc}", self.root)
 
     def _prompt_open_recent(self, folder: Path | None = None) -> None:
         target = folder if folder is not None else recent_paths.load()
         if target is None:
-            messagebox_safe("No hay una carpeta reciente valida.")
+            messagebox_safe("No hay una carpeta reciente valida.", self.root)
             return
         if not target.is_dir():
             # It was there when we wrote it down; say so and stop
             # offering it instead of failing silently every click.
             recent_paths.forget(target)
             self._refresh_recent_label()
-            messagebox_safe(f"La carpeta ya no existe:\n{target}")
+            messagebox_safe(f"La carpeta ya no existe:\n{target}", self.root)
             return
         self._open_files_drop([str(target)])
 
@@ -482,8 +485,21 @@ class App:
             log.info("Aplicacion finalizada")
 
 
-def messagebox_safe(message: str) -> None:
-    """Show an error message box without crashing if Tk isn't ready."""
+def messagebox_safe(message: str, master: tk.Misc | None = None) -> None:
+    """Show an error without crashing if nothing can be painted yet.
+
+    Every caller is an exception handler, and some of them can fire
+    before ``theme.init(root)`` has run or before there is a window to
+    put a dialog on. So the app's own dialog is attempted first and the
+    native box stays underneath as the floor: it must never be the error
+    report that dies reporting the error.
+    """
+    if master is not None:
+        try:
+            theme.alert(master, "Error", message, level="error")
+            return
+        except Exception:
+            log.exception("El dialogo propio fallo, se usa el nativo")
     try:
         from tkinter import messagebox
         messagebox.showerror("Error", message)

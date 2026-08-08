@@ -9,72 +9,16 @@ funcionamiento del flujo, en [README.md](README.md).
 
 ---
 
-## 1 · Dejar el alert nativo y hacer uno con el estilo de la app
-
-**Qué.** Sustituir `tkinter.messagebox` por un diálogo propio, con la tipografía,
-los colores y los botones del resto de la aplicación. El messagebox de Tk usa el
-diálogo del sistema: fuente distinta, iconos de Windows, botones «Aceptar /
-Cancelar» del sistema operativo. Es lo único que rompe el aspecto de la app.
-
-**Estado actual.** 18 llamadas, de las cuales **15 en código vivo**:
-
-| Tipo | Sitios vivos | Qué necesita |
-|---|---|---|
-| `showinfo` | `app.py:404`, `home_view.py:233` y `:258`, `marks_view.py:1749` | avisar y ya |
-| `showwarning` | `app.py:399`, `home_view.py:265`, `marks_view.py:1800`, `ocr_review_view.py:264` y `:644` | igual, con otro tono |
-| `showerror` | `app.py:514`, `render_view.py:593` | igual |
-| `askyesno` | `marks_view.py:1648` | devuelve `bool`, bloquea |
-| `askokcancel` | `home_view.py:242`, `marks_view.py:1777`, `ocr_review_view.py:655` | devuelve `bool`, bloquea |
-
-Las otras 3 están en `base_marks_view.py` (código muerto, ver el punto 2).
-
-**El patrón ya existe.** `src/views/export_dialog.py` es exactamente esto hecho
-a mano: `Toplevel` con `COLOR_BG`, borde de 2 px con `highlightthickness`,
-`transient` + `grab_set` + `wait_window` para bloquear, `Escape` cancela,
-`Return` confirma, `_center_on(master)`, y el resultado en `self.result`. El
-trabajo es generalizarlo, no inventarlo.
-
-**Dónde.**
-
-- `src/views/theme.py` — es donde va, según DESIGN.md: el vocabulario de
-  controles vive en `theme`, no en las vistas. Algo como
-  `theme.alert(master, titulo, mensaje, level=...)` y
-  `theme.confirm(master, titulo, mensaje, confirmar="…", peligro=False) -> bool`.
-- `src/app.py:510` — `messagebox_safe` es el embudo de errores (5 llamadas lo
-  usan). Cambiarlo ahí cubre la mitad del trabajo de golpe.
-- Los 15 sitios de la tabla.
-
-**A decidir.**
-
-- **El respaldo nativo hay que conservarlo.** `messagebox_safe` se llama desde
-  manejadores de excepción, y algunos pueden dispararse antes de que exista la
-  raíz o antes de `theme.init(root)`. Un diálogo propio no se puede pintar ahí.
-  *Propuesta:* `messagebox_safe` intenta el diálogo del tema y cae al
-  `messagebox.showerror` de siempre si algo falla — nunca debe ser el error
-  quien se coma el aviso del error.
-- Los niveles: DESIGN.md §8 ya tiene `info` / `working` / `success` / `warning`
-  / `error` para la barra de estado. El diálogo debería usar los mismos, sin
-  iconos: una banda o un rótulo de color, como el resto de la app.
-- ¿Los avisos de «ya está» (`showinfo`) merecen un diálogo modal, o van mejor a
-  la barra de estado que ya existe? Un modal para decir «exportado» interrumpe
-  sin necesidad. *Propuesta:* revisar los cuatro `showinfo` uno por uno; varios
-  probablemente sobran.
-- Los botones: el que confirma es `primary`; si la acción borra o descarta,
-  DESIGN.md pide que el rótulo diga qué hace («Descartar cambios»), no «Sí».
-
----
-
-## 2 · Revisar el uso del tema
+## 1 · Revisar el uso del tema
 
 Del repaso de DESIGN.md contra el código. Nada de esto rompe la aplicación;
 son incoherencias con el sistema visual ya documentado.
 
-**Ficheros muertos — ruido, no defectos.** `floating_bar.py`, `marks_panel.py`
-y `base_marks_view.py` concentran casi todas las infracciones (`tk.Button`
-crudo, tuplas de fuente literales, `#666666`, `#9a9a9a`), pero el README ya los
-marca como *legacy, sin uso*: ningún módulo activo los importa. **A decidir: se
-borran o se dejan.** Borrarlos quita 3 de los 4 hallazgos de golpe, y también
-los 3 `messagebox` del punto 1.
+**Los ficheros muertos ya no existen.** Este apartado empezaba diciendo que
+`floating_bar.py`, `marks_panel.py` y `base_marks_view.py` concentraban casi
+todas las infracciones y preguntando si borrarlos. No están en el árbol: se
+borraron y el README ya lo dice. Lo que queda es solo código vivo, y con ello
+desaparecen tres de los cuatro hallazgos originales.
 
 **Código vivo.**
 
@@ -106,7 +50,7 @@ página final, no la interfaz. Conviene anotarlo en DESIGN.md para que no se
 
 ---
 
-## 3 · Paso 2 (Marcar) · la rueda no desplaza mientras se marca
+## 2 · Paso 2 (Marcar) · la rueda no desplaza mientras se marca
 
 **Qué.** Con el modo de edición encendido —o sea, justo mientras se están
 añadiendo marcas— la rueda del ratón no mueve la imagen. Hay que apagar la
@@ -148,7 +92,7 @@ edición, desplazarse y volver a encenderla.
 
 ---
 
-## 4 · Paso 3 (Traducir) · el texto largo se corta en vez de seguir abajo
+## 3 · Paso 3 (Traducir) · el texto largo se corta en vez de seguir abajo
 
 **Qué.** Cuando una traducción no cabe en el ancho de la columna, el final
 desaparece. Debería continuar en otra línea.
@@ -192,6 +136,25 @@ desaparece. Debería continuar en otra línea.
 ---
 
 ## Hecho
+
+- **Fuera el alert nativo** — `theme.alert()` y `theme.confirm()` son un
+  único `Toplevel` con el borde de 2 px, la tipografía y los botones de la
+  app; un aviso es esa misma clase sin el botón de cancelar, porque se
+  diferencian en un botón y no en una disposición. Al hacer el inventario
+  resultó que **la mitad de los quince sitios no debía ser un diálogo**: el
+  corte no está entre `showinfo` y `showwarning` sino entre las cuatro
+  llamadas que devuelven `bool` —que bloquean porque el código siguiente
+  depende de la respuesta— y los once avisos, que en cuanto la vista tenga
+  `StatusBar` van a la barra. Cinco se mudaron ahí, incluidos dos que ya
+  estaban dichos dos veces: la exportación fallida abría un modal y acto
+  seguido escribía el mismo error en la barra, y «Sin marcas» era un modal a
+  catorce líneas de un aviso idéntico resuelto con `_status.set`. Los cuatro
+  que preguntan estrenan rótulo que dice qué hacen —«Borrar las marcas»,
+  «Volver a leerlas»— en vez de «Sí». No hizo falta variante `danger`:
+  `primary` ya es el rojo acento. `messagebox_safe` intenta el diálogo propio
+  y **conserva el `messagebox` nativo debajo**, porque se llama desde
+  manejadores de excepción que pueden dispararse antes de que haya ventana
+  donde pintar: nunca debe ser el aviso del error quien se caiga avisando.
 
 - **Paso 1 · carpeta reciente**, **`*.clean.*` como versión limpia**,
   **centrado y zoom de la tira**, **marcas como sublista de páginas** — ver el

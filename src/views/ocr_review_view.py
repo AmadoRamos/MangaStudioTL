@@ -16,7 +16,7 @@ from __future__ import annotations
 import tkinter as tk
 from dataclasses import replace
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import filedialog
 
 from PIL import Image
 
@@ -262,9 +262,7 @@ class OcrReviewView(tk.Frame):
             engine.set_binary_path(Path(chosen))
         except Exception as exc:
             log.exception("No se pudo fijar la ruta de Tesseract: %s", exc)
-            messagebox.showwarning(
-                "Ruta no válida", str(exc), parent=self,
-            )
+            self._status.set(f"Ruta no válida: {exc}", "error")
             return
         self._refresh_empty_state()
 
@@ -657,10 +655,9 @@ class OcrReviewView(tk.Frame):
 
     def _on_continue(self) -> None:
         if self.workflow.translated_marks() == 0:
-            messagebox.showwarning(
-                "Sin traducciones",
+            self._status.set(
                 "Traduce o escribe al menos una sección antes de continuar.",
-                parent=self,
+                "info",
             )
             return
         # The render falls back to the original page while a clean
@@ -668,12 +665,13 @@ class OcrReviewView(tk.Frame):
         # lands — but arriving to unclean pages with nothing having said
         # why reads as a bug, so say it here instead of blocking.
         pending = self._clean_pending()
-        if pending and not messagebox.askokcancel(
+        if pending and not theme.confirm(
+            self,
             "Limpieza en curso",
             f"Quedan {pending} página(s) por limpiar.\n\n"
             "Puedes continuar: el render usa la original mientras tanto "
             "y cambia a la limpia en cuanto esté lista.",
-            parent=self,
+            confirm_label="Continuar igualmente",
         ):
             return
         for store in self._stores:

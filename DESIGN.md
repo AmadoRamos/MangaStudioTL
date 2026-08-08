@@ -242,6 +242,15 @@ Everything in `theme.py`. Build with these; do not instantiate a raw
 | `TopBar` | the 42 px strip + its rule; children go in `.body`, `.gap()` pushes the rest right |
 | `StatusBar` (in `toolbar.py`) | the footer: `set(text, level)` for status, `set_hint()` for shortcuts |
 | `Tooltip` (in `toolbar.py`) | 450 ms delay; `button(tooltip=…)` wires it for you |
+| `alert(master, title, message, level=)` | says something and waits for the acknowledgement |
+| `confirm(master, title, message, confirm_label=)` | asks; `True` only for the confirming button |
+
+`alert` and `confirm` are the **same modal**, differing by one button —
+see §8. Never `tkinter.messagebox`: it draws the operating system's own
+dialog, with its font, its icons and its «Aceptar / Cancelar». The one
+exception is `app.messagebox_safe`, which keeps the native box
+underneath as a floor for errors that fire before there is a window to
+paint a dialog on.
 
 `toolbar.py` holds only those two. Its old button factories
 (`make_button`, `make_color_swatch`, `ToolbarBar`…) predate this design
@@ -337,6 +346,22 @@ Note that `working` and `success` currently resolve to the **same
 colour** (ink); only `error` (`ACCENT_700`) and `info` (`NEUTRAL_600`)
 are visually distinct. If a screen needs to distinguish working from
 done, it must do it in the wording.
+
+### Modal or status bar
+
+A modal stops the work; the status bar does not. So the rule is not the
+severity of the message but whether an answer is needed:
+
+- **It needs an answer** (`confirm`) — a modal, always. It blocks because
+  the code after it depends on the answer.
+- **It only tells** — the status bar, whenever the screen has one. Every
+  step's view does; `home_view` does not, which is the only reason its
+  four messages are `alert`.
+
+An `alert` next to a `StatusBar` is almost always the message being said
+twice. The button of a `confirm` is `primary` — the accent is already
+the colour of consequence in this app, so a destructive action needs no
+variant of its own, only a label that says what it does (§7).
 
 ### Confidence bands
 

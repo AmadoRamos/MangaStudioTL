@@ -19,8 +19,7 @@ from src.config import (
     NEUTRAL_600,
 )
 from src.views import theme
-
-DIALOG_WIDTH = 460
+from src.views.theme import DIALOG_WIDTH
 
 
 class ExportDialog(tk.Toplevel):
@@ -60,7 +59,7 @@ class ExportDialog(tk.Toplevel):
         self.protocol("WM_DELETE_WINDOW", self._cancel)
         self.bind("<Escape>", lambda _e: self._cancel())
         self.bind("<Return>", lambda _e: self._confirm())
-        self._center_on(master)
+        theme.center_on(self, master, DIALOG_WIDTH)
         self.grab_set()
         self.wait_window(self)
 
@@ -158,12 +157,3 @@ class ExportDialog(tk.Toplevel):
         except Exception:
             pass
         self.destroy()
-
-    def _center_on(self, master: tk.Misc) -> None:
-        # The mockups' dialog is 460 px wide; height follows the content.
-        self.update_idletasks()
-        width, height = DIALOG_WIDTH, self.winfo_reqheight()
-        top = master.winfo_toplevel()
-        x = top.winfo_rootx() + (top.winfo_width() - width) // 2
-        y = top.winfo_rooty() + (top.winfo_height() - height) // 3
-        self.geometry(f"{width}x{height}+{max(0, x)}+{max(0, y)}")

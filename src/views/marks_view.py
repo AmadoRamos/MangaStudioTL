@@ -24,7 +24,6 @@ import time
 import tkinter as tk
 from pathlib import Path
 from dataclasses import replace
-from tkinter import messagebox
 
 from PIL import Image, ImageTk
 
@@ -1742,10 +1741,11 @@ class MarksView(tk.Frame):
             return
         if len(self._stores[target_idx]) == 0:
             return
-        if not messagebox.askyesno(
+        if not theme.confirm(
+            self,
             "Limpiar marcas",
-            f"¿Borrar todas las marcas de la página {target_idx + 1}?",
-            parent=self,
+            f"Se borrarán todas las marcas de la página {target_idx + 1}.",
+            confirm_label="Borrar las marcas",
         ):
             return
         if self._mode == MODE_ONE and self._marks_canvas is not None:
@@ -1843,10 +1843,8 @@ class MarksView(tk.Frame):
         if self._pipeline.is_running():
             return
         if self.workflow.total_marks() == 0:
-            messagebox.showinfo(
-                "Sin marcas",
-                "Marca al menos una sección antes de continuar.",
-                parent=self,
+            self._status.set(
+                "Marca al menos una sección antes de continuar.", "info",
             )
             return
         for s in self._stores:
@@ -1871,12 +1869,13 @@ class MarksView(tk.Frame):
             self._status.set("No hay marcas que leer", "info")
             return
         done = total - self._pipeline.pending_ocr(self._stores)
-        if done and not messagebox.askokcancel(
+        if done and not theme.confirm(
+            self,
             "Re-extraer el texto",
             f"{done} de {total} marca(s) ya tienen texto.\n"
             "Volver a leerlas reemplazará lo que haya, incluidas las "
             "correcciones hechas a mano.",
-            parent=self,
+            confirm_label="Volver a leerlas",
         ):
             return
         self.run_pipeline(force_ocr=True)
@@ -1894,11 +1893,9 @@ class MarksView(tk.Frame):
         if self._pipeline.is_running():
             return
         if not self._engine.is_available():
-            messagebox.showwarning(
-                "Sin OCR",
-                "Tesseract no está disponible, así que no se puede extraer "
-                "el texto.\nRevisa logs/app.log para ver dónde se buscó.",
-                parent=self,
+            self._status.set(
+                "Tesseract no está disponible: no se puede extraer el texto. "
+                "Revisa logs/app.log para ver dónde se buscó.", "error",
             )
             return
         for s in self._stores:

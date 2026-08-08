@@ -37,6 +37,7 @@ from src.config import (
     COLOR_DIVIDER,
     COLOR_SURFACE,
     COLOR_TEXT,
+    ERROR_COLOR,
     NEUTRAL_300,
     NEUTRAL_400,
     NEUTRAL_500,
@@ -52,6 +53,7 @@ __all__ = [
     "Meter", "DashedZone", "TopBar",
     "swatch", "tag", "card", "field_label", "entry", "text_area",
     "option_menu", "slider", "checkbox",
+    "alert", "confirm", "center_on", "DIALOG_WIDTH",
 ]
 
 # Font stacks. Archivo is the mockups' typeface; the rest are the
@@ -854,3 +856,147 @@ def checkbox(
         highlightthickness=0, bd=0, anchor=tk.W,
         cursor="hand2",
     )
+
+
+# ----------------------------------------------------------------------
+# Modal dialogs
+# ----------------------------------------------------------------------
+
+#: The mockups' dialog width. Height always follows the content.
+DIALOG_WIDTH = 460
+
+
+def center_on(window: tk.Toplevel, master: tk.Misc, width: int) -> None:
+    """Place *window* over the top third of *master*'s window."""
+    window.update_idletasks()
+    height = window.winfo_reqheight()
+    top = master.winfo_toplevel()
+    x = top.winfo_rootx() + (top.winfo_width() - width) // 2
+    y = top.winfo_rooty() + (top.winfo_height() - height) // 3
+    window.geometry(f"{width}x{height}+{max(0, x)}+{max(0, y)}")
+
+
+class _MessageDialog(tk.Toplevel):
+    """One modal, whether it asks or only tells.
+
+    An alert is this with the cancel button left out, which is why there
+    is a single class: the two differ by one button, not by a layout.
+    ``result`` is ``True`` only when the confirming button was pressed.
+    """
+
+    def __init__(
+        self,
+        master: tk.Misc,
+        title: str,
+        message: str,
+        *,
+        kicker_text: str,
+        kicker_fg: str,
+        confirm_label: str,
+        cancel_label: str | None,
+    ) -> None:
+        super().__init__(master, bg=COLOR_BG)
+        self.result = False
+        self.title(title)
+        self.transient(master.winfo_toplevel())
+        self.resizable(False, False)
+        self.configure(
+            highlightthickness=2,
+            highlightbackground=COLOR_TEXT, highlightcolor=COLOR_TEXT,
+        )
+
+        header = tk.Frame(self, bg=COLOR_BG, padx=18, pady=16)
+        header.pack(fill=tk.X)
+        kicker(header, kicker_text, fg=kicker_fg).pack(fill=tk.X, pady=(0, 5))
+        heading(header, title, size=15, wrap=DIALOG_WIDTH - 36).pack(fill=tk.X)
+        rule(self, thickness=2, color=COLOR_TEXT).pack(fill=tk.X)
+
+        body_frame = tk.Frame(self, bg=COLOR_BG, padx=18, pady=16)
+        body_frame.pack(fill=tk.BOTH, expand=True)
+        body(
+            body_frame, message, size=10, wrap=DIALOG_WIDTH - 36,
+        ).pack(fill=tk.X)
+
+        rule(self, thickness=2, color=COLOR_DIVIDER).pack(fill=tk.X)
+        actions = tk.Frame(self, bg=COLOR_BG, padx=18, pady=14)
+        actions.pack(fill=tk.X)
+        button(
+            actions, confirm_label, self._confirm,
+            variant="primary", padx=16, pady=10,
+        ).pack(side=tk.LEFT)
+        if cancel_label is not None:
+            button(
+                actions, cancel_label, self._cancel,
+                variant="outline", padx=16, pady=10,
+            ).pack(side=tk.LEFT, padx=(9, 0))
+
+        # Closing the window is «no», never «yes» — the X and Escape have
+        # to agree with the cancel button or a confirmation is a trap.
+        self.protocol("WM_DELETE_WINDOW", self._cancel)
+        self.bind("<Escape>", lambda _e: self._cancel())
+        self.bind("<Return>", lambda _e: self._confirm())
+        center_on(self, master, DIALOG_WIDTH)
+        self.grab_set()
+        self.focus_set()
+        self.wait_window(self)
+
+    def _confirm(self) -> None:
+        self.result = True
+        self._close()
+
+    def _cancel(self) -> None:
+        self.result = False
+        self._close()
+
+    def _close(self) -> None:
+        try:
+            self.grab_release()
+        except Exception:
+            pass
+        self.destroy()
+
+
+def alert(
+    master: tk.Misc,
+    title: str,
+    message: str,
+    *,
+    level: str = "info",
+    button_label: str = "Entendido",
+) -> None:
+    """Say something and wait for the acknowledgement.
+
+    ``level`` is the :class:`StatusBar` vocabulary, not a wider one:
+    only ``error`` looks different, because in this system only ``error``
+    has a colour of its own.
+    """
+    is_error = level == "error"
+    _MessageDialog(
+        master, title, message,
+        kicker_text="Error" if is_error else "Aviso",
+        kicker_fg=ERROR_COLOR if is_error else NEUTRAL_600,
+        confirm_label=button_label,
+        cancel_label=None,
+    )
+
+
+def confirm(
+    master: tk.Misc,
+    title: str,
+    message: str,
+    *,
+    confirm_label: str,
+    cancel_label: str = "Cancelar",
+) -> bool:
+    """Ask, and answer ``True`` only for the confirming button.
+
+    ``confirm_label`` has no default on purpose: DESIGN.md §7 asks the
+    button to say what it does, and «Sí» never does.
+    """
+    return _MessageDialog(
+        master, title, message,
+        kicker_text="Confirmar",
+        kicker_fg=NEUTRAL_600,
+        confirm_label=confirm_label,
+        cancel_label=cancel_label,
+    ).result

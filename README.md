@@ -343,7 +343,8 @@ Tres reglas que valen para los cuatro pasos:
     │   └── translator.py          Wrapper de Argos Translate
     └── views/
         ├── theme.py               Sistema Modernist: tokens, botones,
-        │                           controles segmentados, medidores…
+        │                           controles segmentados, medidores,
+        │                           avisos y confirmaciones modales
         ├── sidebar.py             Riel persistente: el paso actual (solo
         │                           ese), secciones y acción anclada
         ├── home_view.py           Paso 1
@@ -379,7 +380,10 @@ cola), el troceo de rutas del drag & drop, la regla de precedencia de
 eligió—, la ida y vuelta de `text_profiles.json` con sus casos feos (un
 perfil sin nombre, un nombre duplicado, un archivo que no es JSON) y la
 geometría que comparten los dos lienzos: mover y redimensionar con su
-recorte, el volteo al cruzar un lado y el tamaño mínimo.
+recorte, el volteo al cruzar un lado y el tamaño mínimo. También que el
+diálogo modal solo diga «sí» por el botón que confirma —cerrar la
+ventana o pulsar Escape es «no», y en una confirmación de borrado eso no
+puede depender de la suerte—.
 Imprime `OK` o revienta con un `assert`. No hay framework de pruebas y
 no hace falta uno para esto.
 

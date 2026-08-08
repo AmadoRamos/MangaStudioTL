@@ -52,6 +52,78 @@ def test_drop_data_splitting(root: tk.Tk) -> None:
     assert root.tk.splitlist("") == ()
 
 
+def test_dialog_answers(root: tk.Tk) -> None:
+    """Sólo el botón que confirma dice «sí»; cerrar dice «no».
+
+    Es la única parte del diálogo con lógica: un modal que devolviera
+    ``True`` al cerrarse convertiría «¿borrar las marcas?» en una trampa.
+    """
+    from src.views import theme
+
+    theme.init(root)
+    root.deiconify()          # grab_set() no funciona sobre una raíz oculta
+
+    def buttons(widget: tk.Misc) -> list[tk.Button]:
+        found: list[tk.Button] = []
+        for child in widget.winfo_children():
+            if isinstance(child, tk.Button):
+                found.append(child)
+            found.extend(buttons(child))
+        return found
+
+    def when_open(action) -> None:
+        def go() -> None:
+            dialog = [
+                w for w in root.winfo_children() if isinstance(w, tk.Toplevel)
+            ][-1]
+            action(dialog)
+        root.after(50, go)
+
+    def press(label: str):
+        def do(dialog: tk.Toplevel) -> None:
+            for btn in buttons(dialog):
+                if str(btn.cget("text")) == label:
+                    btn.invoke()
+                    return
+            raise AssertionError(f"no hay botón «{label}»")
+        return do
+
+    when_open(press("Borrar las marcas"))
+    assert theme.confirm(
+        root, "Limpiar", "Se borran.", confirm_label="Borrar las marcas",
+    ) is True
+
+    when_open(press("Cancelar"))
+    assert theme.confirm(
+        root, "Limpiar", "Se borran.", confirm_label="Borrar las marcas",
+    ) is False
+
+    # Cerrar la ventana tiene que coincidir con «Cancelar». Se invoca el
+    # manejador del gestor de ventanas en vez de simular la tecla:
+    # `event_generate` depende del foco, que en una prueba no está dado.
+    def close_window(dialog: tk.Toplevel) -> None:
+        assert str(dialog.bind("<Escape>")), "Escape sin atar"
+        dialog.tk.call(dialog.protocol("WM_DELETE_WINDOW"))
+
+    when_open(close_window)
+    assert theme.confirm(
+        root, "Limpiar", "Se borran.", confirm_label="Borrar las marcas",
+    ) is False
+
+    # Un aviso es el mismo diálogo sin el botón de cancelar.
+    labels: list[str] = []
+
+    def record(dialog: tk.Toplevel) -> None:
+        labels.extend(str(b.cget("text")) for b in buttons(dialog))
+        press("Entendido")(dialog)
+
+    when_open(record)
+    theme.alert(root, "Aviso", "Ya está.")
+    assert labels == ["Entendido"], labels
+
+    root.withdraw()
+
+
 def test_box_precedence() -> None:
     """The section beats the chapter, and ``None`` means «sin tocar»."""
     mark = Mark(x=10, y=20, w=200, h=80, color="#ec3013")
@@ -220,6 +292,7 @@ if __name__ == "__main__":
     try:
         test_emit_dispatches_by_name(root)
         test_drop_data_splitting(root)
+        test_dialog_answers(root)
         test_box_precedence()
         test_profile_layer()
         test_rect_geometry()

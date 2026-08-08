@@ -16,7 +16,7 @@ import sys
 import tkinter as tk
 from dataclasses import replace
 from pathlib import Path
-from tkinter import colorchooser, messagebox
+from tkinter import colorchooser
 
 from PIL import Image
 
@@ -911,8 +911,10 @@ class RenderView(tk.Frame):
             )
         except Exception as exc:
             log.exception("Error exportando: %s", exc)
-            messagebox.showerror("Error de exportación", str(exc), parent=self)
-            self._status.set("La exportación falló", "error")
+            # Un modal aquí repetía lo que la barra dice justo debajo. La
+            # exportación es lo último del flujo: quien la lanzó está
+            # mirando, y el detalle largo va al log.
+            self._status.set(f"La exportación falló: {exc}", "error")
             return
 
         for store in self._stores:
