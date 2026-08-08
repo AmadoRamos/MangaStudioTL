@@ -647,10 +647,12 @@ más alta del capítulo, para que el encuadre valga para todas.
   sale como `.\nSabes por qué...` —el sentido invertido—, y unido sale
   `No sé por qué...`. Sobre las 7 secciones con salto de la página de
   ejemplo, las 7 traducciones cambian
-- **Botones**: `theme.button` tiene cinco variantes. `outline` dibuja su
-  borde con `relief="solid"` en vez de `highlightthickness`, porque
-  **Windows nunca pinta el aro de resalte de un `tk.Button`** — de ahí
-  que `secondary`, que sí lo usa, se vea sin borde en esta plataforma.
+- **Botones**: `theme.button` tiene cuatro variantes, y `outline` es la
+  de por defecto. Dibuja su borde con `relief="solid"` en vez de
+  `highlightthickness`, porque **Windows nunca pinta el aro de resalte de
+  un `tk.Button`**; hubo una quinta variante que sí lo usaba y se veía
+  sin borde en esta plataforma, así que se borró en vez de documentarla
+  otra vez
   `theme.SEGMENT_CHARS` es el ancho estándar, en caracteres, de los
   segmentos con texto de una `SegmentedBar`; la etiqueta más larga de la
   tira puede subirlo, nunca bajarlo

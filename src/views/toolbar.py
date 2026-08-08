@@ -17,12 +17,16 @@ from src.config import (
     COLOR_TEXT,
     NEUTRAL_600,
 )
+# theme importa este módulo, pero siempre dentro de una función, así que
+# el ciclo no se cierra al cargar. La fuente se pide en el momento de
+# crear el widget porque la familia no se resuelve hasta theme.init().
+from src.views import theme
 
 TOOLTIP_DELAY_MS: int = 450
-# Ink-on-paper, like every other surface in the system.
-TOOLTIP_BG: str = "#201e1d"
-TOOLTIP_FG: str = "#f3f2f2"
-TOOLTIP_FONT: tuple[str, int, str] = ("Segoe UI", 9, "normal")
+# Paper-on-ink: the tooltip is the system's colours turned around, so it
+# reads as a layer above the surface instead of a patch of it.
+TOOLTIP_BG: str = COLOR_TEXT
+TOOLTIP_FG: str = COLOR_BG
 
 
 class Tooltip:
@@ -136,7 +140,7 @@ class Tooltip:
             text=self._text,
             bg=TOOLTIP_BG,
             fg=TOOLTIP_FG,
-            font=TOOLTIP_FONT,
+            font=theme.body_font(9),
             padx=8,
             pady=5,
             bd=1,
@@ -178,7 +182,7 @@ class StatusBar(tk.Frame):
         self._label = tk.Label(
             row,
             textvariable=self._var,
-            font=("Segoe UI", 9),
+            font=theme.body_font(9),
             bg=COLOR_BG,
             fg=NEUTRAL_600,
             anchor=tk.W,
@@ -189,7 +193,7 @@ class StatusBar(tk.Frame):
         self._hint = tk.Label(
             row,
             text="",
-            font=("Segoe UI", 9),
+            font=theme.body_font(9),
             bg=COLOR_BG,
             fg=NEUTRAL_600,
             anchor=tk.E,

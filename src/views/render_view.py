@@ -384,12 +384,12 @@ class RenderView(tk.Frame):
             theme.button(
                 nav, "◀ Anterior",
                 lambda: self._step_section(-1),
-                variant="secondary", size=8, padx=8, pady=6,
+                variant="outline", size=8, padx=8, pady=6,
             ).pack(side=tk.LEFT)
             theme.button(
                 nav, "Siguiente ▶",
                 lambda: self._step_section(1),
-                variant="secondary", size=8, padx=8, pady=6,
+                variant="outline", size=8, padx=8, pady=6,
             ).pack(side=tk.RIGHT)
 
     def _label_row(
@@ -1002,7 +1002,7 @@ class RenderView(tk.Frame):
         self._sidebar.set_footer(
             "Volver al inicio", self._back_to_home,
             hint="El capítulo se conserva por si quieres retocarlo",
-            variant="secondary",
+            variant="outline",
         )
 
     def _stat(

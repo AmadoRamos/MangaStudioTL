@@ -22,7 +22,9 @@ from tkinter import ttk
 from typing import Callable
 
 from src.config import (
+    ACCENT_200,
     ACCENT_700,
+    BTN_FG,
     COLOR_ACCENT,
     COLOR_BG,
     COLOR_DIVIDER,
@@ -77,8 +79,8 @@ class _StepRow(tk.Frame):
     def set_state(self, state: str) -> None:
         """``state`` is one of ``done``, ``active``, ``pending``."""
         if state == "active":
-            bg, fg, sub_fg = COLOR_ACCENT, "#ffffff", "#ffd8d0"
-            chip_bg, chip_fg, chip_border = COLOR_ACCENT, "#ffffff", "#ffffff"
+            bg, fg, sub_fg = COLOR_ACCENT, BTN_FG, ACCENT_200
+            chip_bg, chip_fg, chip_border = COLOR_ACCENT, BTN_FG, BTN_FG
             chip_text = str(self._number)
         elif state == "done":
             bg, fg, sub_fg = SIDEBAR_BG, NEUTRAL_700, NEUTRAL_600
@@ -400,7 +402,7 @@ class Sidebar(tk.Frame):
         if secondary_text:
             self._footer_secondary = theme.button(
                 self._footer_body, secondary_text, secondary_command,
-                variant="secondary", size=9, pady=7, anchor=tk.W,
+                variant="outline", size=9, pady=7, anchor=tk.W,
             )
             self._footer_secondary.pack(fill=tk.X, pady=(0, 7))
         self._footer_primary = theme.button(
@@ -616,7 +618,7 @@ class Sidebar(tk.Frame):
     ) -> tk.Button:
         return theme.button(
             parent, text, command,
-            variant="secondary", tooltip=tooltip or None,
+            variant="outline", tooltip=tooltip or None,
             size=9, padx=9, pady=7, anchor=anchor,
         )
 

@@ -46,6 +46,7 @@ from src.utils.text_renderer import (
     fit_text,
     resolve_box,
 )
+from src.views import theme
 from src.views.zoomed_canvas import (
     HANDLE_SIZE,
     HANDLES,
@@ -543,10 +544,13 @@ class TranslatorCanvas(ZoomedCanvas):
         x2, y2 = self.image_to_canvas(x + w, y + h)
         cw = max(int(x2 - x1), 60)
         ch = max(int(y2 - y1), 24)
+        # Blanco y negro puros a propósito, no la paleta: mientras se
+        # escribe, el editor hace de página terminada, y la página es
+        # blanca. Está anotado en DESIGN.md §2 para que no se «corrija».
         editor = tk.Text(
             self._canvas, width=1, height=1, wrap=tk.WORD,
             bg="#ffffff", fg="#000000",
-            font=("Segoe UI", 10),
+            font=theme.body_font(10),
             bd=1, relief=tk.SOLID,
             insertbackground="#000000",
             padx=2, pady=2,

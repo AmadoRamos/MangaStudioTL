@@ -282,10 +282,6 @@ _VARIANTS: dict[str, dict[str, str]] = {
         "bg": COLOR_ACCENT, "fg": "#ffffff",
         "hover": ACCENT_600, "active": ACCENT_700, "border": "",
     },
-    "secondary": {
-        "bg": "", "fg": COLOR_TEXT,
-        "hover": NEUTRAL_300, "active": NEUTRAL_400, "border": COLOR_DIVIDER,
-    },
     "ink": {
         "bg": COLOR_TEXT, "fg": COLOR_BG,
         "hover": "#3a3736", "active": "#000000", "border": "",
@@ -294,11 +290,10 @@ _VARIANTS: dict[str, dict[str, str]] = {
         "bg": "", "fg": ACCENT_700,
         "hover": ACCENT_100, "active": ACCENT_200, "border": "",
     },
-    # Same ink border as a SegmentedBar: for actions that sit next to one
-    # in a top bar, where the faint "secondary" outline reads as plain
-    # text rather than as something clickable. "solid" draws the border
-    # with a relief because Windows never paints a Button's highlight
-    # ring — which is precisely why "secondary" looks borderless there.
+    # The default, and the only bordered variant: "solid" draws the
+    # border with a relief because Windows never paints a Button's
+    # highlight ring. A variant that used the ring instead lived here
+    # once ("secondary") and rendered as plain text on every screen.
     "outline": {
         "bg": "", "fg": COLOR_TEXT,
         "hover": NEUTRAL_300, "active": NEUTRAL_400, "border": COLOR_TEXT,
@@ -317,7 +312,7 @@ def button(
     text: str,
     command: Callable[[], None] | None = None,
     *,
-    variant: str = "secondary",
+    variant: str = "outline",
     tooltip: str | None = None,
     size: int = 10,
     padx: int = 14,
@@ -326,7 +321,7 @@ def button(
     border_width: int = 1,
 ) -> tk.Button:
     """A flat squared button in one of the system variants."""
-    spec = _VARIANTS.get(variant, _VARIANTS["secondary"])
+    spec = _VARIANTS.get(variant, _VARIANTS["outline"])
     base_bg = spec["bg"] or _bg_of(parent)
     border = spec["border"]
     solid = bool(spec.get("solid"))
@@ -371,7 +366,7 @@ def button(
 
 def restyle_button(btn: tk.Button, variant: str) -> None:
     """Switch an existing button to another variant (keeps geometry)."""
-    spec = _VARIANTS.get(variant, _VARIANTS["secondary"])
+    spec = _VARIANTS.get(variant, _VARIANTS["outline"])
     base_bg = spec["bg"] or _bg_of(btn.master)
     border = spec["border"]
     solid = bool(spec.get("solid"))

@@ -84,7 +84,7 @@ class ExportDialog(tk.Toplevel):
         field.pack(side=tk.LEFT, fill=tk.X, expand=True, ipady=6)
         theme.button(
             row, "Examinar…", self._browse,
-            variant="secondary", size=9, padx=10, pady=7,
+            variant="outline", size=9, padx=10, pady=7,
         ).pack(side=tk.LEFT, padx=(8, 0))
 
         theme.kicker(body, "Se escribirá").pack(fill=tk.X, pady=(0, 7))
@@ -126,7 +126,7 @@ class ExportDialog(tk.Toplevel):
         ).pack(side=tk.LEFT)
         theme.button(
             actions, "Cancelar", self._cancel,
-            variant="secondary", padx=16, pady=10,
+            variant="outline", padx=16, pady=10,
         ).pack(side=tk.LEFT, padx=(9, 0))
 
     # ------------------------------------------------------------------

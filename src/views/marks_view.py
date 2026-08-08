@@ -444,9 +444,8 @@ class MarksView(tk.Frame):
         tooltip: str = "",
     ) -> tk.Button:
         text = f"{label}   {shortcut}" if shortcut else label
-        # «outline», not «secondary»: on their own strip, borderless
-        # labels stop reading as something you can press. The two toggles
-        # still flip to «ink» when they are on.
+        # Los dos conmutadores siguen pasando a «ink» cuando están
+        # encendidos; «outline» es el estado apagado.
         btn = theme.button(
             parent, text, command,
             variant="outline", size=9, padx=10, pady=8, anchor=tk.W,
@@ -712,7 +711,7 @@ class MarksView(tk.Frame):
         # help puts it off screen exactly when it is wanted.
         self._delete_btn = theme.button(
             body, "Eliminar marca   Supr", self._delete_selected,
-            variant="secondary", size=8, padx=8, pady=7, anchor=tk.W,
+            variant="outline", size=8, padx=8, pady=7, anchor=tk.W,
             tooltip="Borra la marca junto con su OCR y su traducción",
         )
         self._delete_btn.pack(fill=tk.X, pady=(2, 0))
@@ -927,7 +926,7 @@ class MarksView(tk.Frame):
         self._sidebar.set_footer(
             "Cancelar proceso", self._cancel_pipeline,
             hint="Lo hecho hasta ahora se conserva",
-            variant="secondary",
+            variant="outline",
         )
 
     def _meter_row(

@@ -124,6 +124,23 @@ def test_dialog_answers(root: tk.Tk) -> None:
     root.withdraw()
 
 
+def test_button_variants() -> None:
+    """Nadie pide una variante que no existe.
+
+    `theme.button` cae en la de por defecto ante un nombre desconocido,
+    así que una errata —o un «secondary» que sobrevivió al borrado— se
+    dibuja bien y nadie se entera. Aquí sí se entera.
+    """
+    import re
+
+    from src.views.theme import _VARIANTS
+
+    assert set(_VARIANTS) == {"primary", "ink", "outline", "ghost"}, _VARIANTS
+    for path in Path("src").rglob("*.py"):
+        for name in re.findall(r'variant="(\w+)"', path.read_text("utf-8")):
+            assert name in _VARIANTS, f"{path}: variante «{name}»"
+
+
 def test_box_precedence() -> None:
     """The section beats the chapter, and ``None`` means «sin tocar»."""
     mark = Mark(x=10, y=20, w=200, h=80, color="#ec3013")
@@ -293,6 +310,7 @@ if __name__ == "__main__":
         test_emit_dispatches_by_name(root)
         test_drop_data_splitting(root)
         test_dialog_answers(root)
+        test_button_variants()
         test_box_precedence()
         test_profile_layer()
         test_rect_geometry()

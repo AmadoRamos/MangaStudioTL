@@ -121,9 +121,8 @@ class OcrReviewView(tk.Frame):
 
         self._topbar.gap()
 
-        # Same ink border and weight as the filter strip beside them:
-        # with the faint «secondary» outline these three read as labels
-        # rather than as something you can press.
+        # Mismo borde y grosor que la tira de filtros de al lado: 2 px,
+        # no el 1 px de un botón suelto.
         for text, command, hint, last in (
             ("⌕ Extraer texto", self._extract_ocr,
              "Vuelve al paso 2 y lee con Tesseract las secciones que aún "

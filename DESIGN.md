@@ -102,6 +102,18 @@ Three names are **not** aliases of a token — they say what the colour
 Everything else uses the token names directly. The old `BG_COLOR` /
 `FG_COLOR` / `PANEL_BG` / `BTN_BG` aliases from the port are gone.
 
+### The one deliberate exception
+
+`TranslatorCanvas`'s on-canvas text editor
+([`translator_canvas.py`](src/views/translator_canvas.py)) is **pure
+white with pure black text**, not `COLOR_BG` on `COLOR_TEXT`. That is on
+purpose: while you are typing, the editor stands in for the finished
+page, and the page is white. Do not "fix" it to the palette.
+
+The exception covers the two colours and nothing else — its font is
+`theme.body_font(10)` like any other widget, because you are typing into
+the interface even if what you see previews the page.
+
 ---
 
 ## 3. Typography
@@ -260,32 +272,36 @@ system and have been deleted — `theme.py` is the only vocabulary.
 
 ## 7. Buttons
 
-Five variants. Picking the wrong one is the most common way to make a
+Four variants. Picking the wrong one is the most common way to make a
 screen look off, so this is the decision table:
 
 | Variant | Looks like | Use for |
 | --- | --- | --- |
+| `outline` | ink border, transparent fill | **the default.** Any real, pressable action |
 | `primary` | filled accent, white text | **the one action** that advances the step. One per screen |
 | `ink` | filled ink, paper text | a toggle that is currently **on** |
-| `outline` | ink border, transparent fill | a real, pressable action sitting in a strip or dock |
-| `secondary` | divider border, transparent fill | a low-weight action inside a panel that already has its own border |
 | `ghost` | no border, accent text | destructive or "escape hatch" text actions (used once) |
+
+Weight is `border_width`: 1 px on its own, 2 px next to a `SegmentedBar`
+so the button matches the strip beside it.
 
 ### The Windows border trap
 
 **Windows never paints a `tk.Button`'s `highlightthickness` ring.**
 
-`secondary` draws its border with `highlightthickness`, so on Windows it
-renders as *plain text with no border*. That is fine inside a card, whose
-own edge already frames it — but on its own strip it stops reading as
-something you can press. This has been reported as a bug twice.
+There used to be a fifth variant, `secondary`, which drew its border
+that way — so on Windows it rendered as *plain text with no border*. It
+was documented as «only inside a container that already has its own
+edge», and then used on nine buttons, none of which was inside one. It
+has been deleted rather than re-documented: a rule violated everywhere
+it applies is not a rule, and the trap is easier to close than to
+remember. `outline` draws its border with `relief="solid"` + `bd`, which
+Windows does paint.
 
-`outline` exists for exactly that case: it draws the border with
-`relief="solid"` + `bd`, which Windows does paint.
-
-> **Rule:** a button standing on its own — in a top bar, in the tool
-> dock, next to a `SegmentedBar` — is `outline`. `secondary` is only for
-> buttons inside a bordered container.
+> **Rule:** there is no borderless-on-Windows variant left to reach for.
+> An unknown variant name falls back to `outline`, and `test_smoke.py`
+> fails if any `variant="…"` in `src/` names something that is not in
+> `_VARIANTS`.
 
 ### Toggles
 

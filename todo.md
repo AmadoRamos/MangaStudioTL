@@ -9,48 +9,7 @@ funcionamiento del flujo, en [README.md](README.md).
 
 ---
 
-## 1 · Revisar el uso del tema
-
-Del repaso de DESIGN.md contra el código. Nada de esto rompe la aplicación;
-son incoherencias con el sistema visual ya documentado.
-
-**Los ficheros muertos ya no existen.** Este apartado empezaba diciendo que
-`floating_bar.py`, `marks_panel.py` y `base_marks_view.py` concentraban casi
-todas las infracciones y preguntando si borrarlos. No están en el árbol: se
-borraron y el README ya lo dice. Lo que queda es solo código vivo, y con ello
-desaparecen tres de los cuatro hallazgos originales.
-
-**Código vivo.**
-
-- **`variant="secondary"` en botones que van solos** — la trampa de Windows de
-  DESIGN.md §7: Tk no pinta el `highlightthickness` de un `tk.Button` en
-  Windows, así que un `secondary` suelto se ve *sin borde*. Sitios a revisar:
-  `export_dialog.py:130` (Cancelar, junto al primario), `marks_view.py:714`
-  (Eliminar marca, sobre el riel), `render_view.py:278` y `:283` (Anterior /
-  Siguiente), `sidebar.py:403` y `:619`, y los `set_footer(variant="secondary")`
-  de `marks_view.py:854` y `render_view.py:682`. Si están sobre el fondo del
-  riel sin contenedor con borde, la regla dice `outline`.
-- **`toolbar.py:31-32`** — `TOOLTIP_BG "#201e1d"` y `TOOLTIP_FG "#f3f2f2"` son
-  los valores de `COLOR_TEXT` / `COLOR_BG` copiados a mano. Deben referenciar
-  los tokens.
-- **`toolbar.py:33, 176-178, 351, 362`** y **`translator_canvas.py:328`** —
-  tuplas de fuente literales en vez de `theme.body_font` / `theme.heading_font`.
-- **`toolbar.py:209`, `floating_bar.py:66`** — `disabledforeground="#666666"`
-  sin token. Falta un token de texto deshabilitado en `config.py`.
-- **`sidebar.py:80-81`** — `"#ffffff"` y `"#ffd8d0"` en la fila del paso activo.
-  El segundo no está en la rampa; o se añade como token o se sustituye por
-  `ACCENT_100`.
-- **`SPACE_1 … SPACE_8`** (`src/config.py`) están declarados y **no se usan en
-  ningún sitio**. O se adoptan o se borran; declarados sin usar solo confunden.
-
-**Excepción deliberada, no defecto.** `translator_canvas.py:325-331`: el editor
-de texto sobre el lienzo es blanco con texto negro a propósito — imita la
-página final, no la interfaz. Conviene anotarlo en DESIGN.md para que no se
-«corrija» más adelante.
-
----
-
-## 2 · Paso 2 (Marcar) · la rueda no desplaza mientras se marca
+## 1 · Paso 2 (Marcar) · la rueda no desplaza mientras se marca
 
 **Qué.** Con el modo de edición encendido —o sea, justo mientras se están
 añadiendo marcas— la rueda del ratón no mueve la imagen. Hay que apagar la
@@ -92,7 +51,7 @@ edición, desplazarse y volver a encenderla.
 
 ---
 
-## 3 · Paso 3 (Traducir) · el texto largo se corta en vez de seguir abajo
+## 2 · Paso 3 (Traducir) · el texto largo se corta en vez de seguir abajo
 
 **Qué.** Cuando una traducción no cabe en el ancho de la columna, el final
 desaparece. Debería continuar en otra línea.
@@ -136,6 +95,27 @@ desaparece. Debería continuar en otra línea.
 ---
 
 ## Hecho
+
+- **Fuera la variante `secondary`** — el apartado pedía revisar nueve botones
+  «por si acaso» estaban sobre el riel sin contenedor con borde. Estaban los
+  nueve: no quedaba en toda la aplicación un solo botón dentro de un
+  contenedor con borde, que es el único sitio donde DESIGN.md §7 permitía
+  `secondary`. Una variante cuya regla se incumple en el 100 % de sus usos no
+  es una regla, así que en vez de corregir los nueve sitios se borró la
+  variante: `outline` pasa a ser el defecto de `theme.button` y el respaldo
+  ante un nombre desconocido, con lo que la trampa de Windows —Tk no pinta el
+  `highlightthickness` de un `Button`— deja de ser algo que recordar y pasa a
+  ser inalcanzable. Se ven cuatro bordes nuevos: los pies de riel de los pasos
+  2 y 4 y el «Cancelar» del diálogo de exportación. De paso, `TOOLTIP_BG` /
+  `TOOLTIP_FG` dejaron de ser `COLOR_TEXT` / `COLOR_BG` copiados a mano, las
+  cuatro tuplas `("Segoe UI", n)` pasaron a `theme.body_font` —`TOOLTIP_FONT`
+  no podía sobrevivir como constante porque la familia no se resuelve hasta
+  `theme.init()`—, y la fila del paso activo usa `BTN_FG` y `ACCENT_200` en
+  vez de `#ffffff` y un `#ffd8d0` que no estaba en la rampa. Tres de los
+  hallazgos del apartado ya no existían: `SPACE_1…SPACE_8` no está en
+  `config.py`, `disabledforeground="#666666"` es `NEUTRAL_500` en los dos
+  sitios vivos y `floating_bar.py` no existe — así que el token de «texto
+  deshabilitado» que el punto pedía añadir sobraba.
 
 - **Fuera el alert nativo** — `theme.alert()` y `theme.confirm()` son un
   único `Toplevel` con el borde de 2 px, la tipografía y los botones de la
