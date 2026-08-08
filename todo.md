@@ -9,36 +9,7 @@ funcionamiento del flujo, en [README.md](README.md).
 
 ---
 
-## 1 · La rueda tiene dos dueños globales
-
-**Qué.** Nadie lo ha reportado; salió al arreglar la rueda del paso 2 y se
-anota antes de que se olvide.
-
-**Estado actual.** `<MouseWheel>` se ata con `bind_all`, que en Tk escribe en
-la etiqueta `all` y **solo admite un script por secuencia**. Hay dos que la
-quieren: `marks_view.py` (`_bind_keys`) y el riel, que se la queda al pasar
-el puntero por encima —[`sidebar.py:349`](src/views/sidebar.py:349)— guardando
-el script anterior en `_prev_wheel` y devolviéndolo al salir.
-
-El fallo está en ese ir y venir: si entre el `<Enter>` y el `<Leave>` la vista
-se destruye —entrar al riel, pulsar un paso, salir del riel—, `_release_wheel`
-reinstala el script de una vista que ya no existe, cuyo comando Tk borró en el
-`unbind_all` de `MarksView.destroy`. La siguiente rueda da error de Tcl.
-
-**A decidir.** Lo obvio —que cada lienzo se ate su propia rueda y se acabe la
-etiqueta global— **puede romper el desplazamiento entero**: en Tk 8.6 sobre
-Windows la rueda va al widget con el **foco de teclado**, no al que está bajo
-el puntero, y el foco lo tiene el marco de la vista
-([`marks_view.py:345`](src/views/marks_view.py:345)), no ningún lienzo. Eso
-explicaría por qué el enganche de `ZoomedCanvas` no bastaba. Antes de tocar
-nada hay que comprobar cuál de las dos entregas ocurre de verdad.
-
-*Propuesta: dejar `bind_all` y que el riel deje de guardar y restaurar; que
-haya un único despachador que mire dónde está el puntero.*
-
----
-
-## 2 · Paso 3 (Traducir) · el texto largo se corta en vez de seguir abajo
+## 1 · Paso 3 (Traducir) · el texto largo se corta en vez de seguir abajo
 
 **Qué.** Cuando una traducción no cabe en el ancho de la columna, el final
 desaparece. Debería continuar en otra línea.
@@ -82,6 +53,25 @@ desaparece. Debería continuar en otra línea.
 ---
 
 ## Hecho
+
+- **Un solo dueño de la rueda** — `bind_all` escribe en la etiqueta `all` de
+  Tk, que **solo guarda un script por secuencia**, así que dos dueños no la
+  comparten: el segundo sustituye al primero. El riel lo sorteaba
+  guardándose el script anterior al entrar el puntero y devolviéndolo al
+  salir, y ahí estaba el fallo: si la vista se destruía entre el `<Enter>` y
+  el `<Leave>` —entrar al riel, pulsar un paso, salir—, el riel reinstalaba
+  el script de una vista muerta, cuyo comando Tk ya había borrado. Ahora el
+  dueño es uno y de por vida: el riel, que se construye una vez y sobrevive a
+  las cuatro vistas. Reparte por posición del puntero —encima del riel,
+  desplaza el riel; fuera, se la pasa a la vista activa, que se apunta con
+  `set_wheel_client`—. Se reparte **por dónde está el puntero y no por quién
+  tiene el foco** porque en Tk 8.6 sobre Windows la rueda llega al widget con
+  el foco de teclado, que aquí es el marco de la vista y nunca un lienzo. El
+  borrado del apuntado compara con `==` y no con `is`, porque cada acceso a
+  un método ligado devuelve un objeto nuevo, y solo borra si el manejador
+  sigue siendo el suyo: una vista que muere tarde no debe dejar sin rueda a
+  la que ya ocupó su sitio. De regalo, el riel se desplaza ahora en los
+  cuatro pasos y no solo en el 2.
 
 - **Paso 2 · la rueda mientras se marca** — lo que la bloqueaba era el modo de
   edición entero; ahora la bloquea `self._drag`, o sea el arrastre en curso,

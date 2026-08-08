@@ -212,13 +212,14 @@ class Sidebar(tk.Frame):
         )
         self._view_sections_frame.bind("<Configure>", self._on_sections_resize)
         self._scroll.bind("<Configure>", self._on_scroll_resize)
-        # Take the wheel only while the pointer is over the rail, and
-        # hand the previous binding back on the way out — the canvas
-        # views bind the wheel application-wide for their own scrolling.
-        self._prev_wheel: str = ""
         self._sync_after_id: str | None = None
-        self.bind("<Enter>", self._grab_wheel, add="+")
-        self.bind("<Leave>", self._release_wheel, add="+")
+        # El riel es el dueño único de la rueda, y lo es de por vida: se
+        # construye una vez y sobrevive a las cuatro vistas. La etiqueta
+        # «all» de Tk solo guarda un script por secuencia, así que con
+        # dos dueños turnándosela alguien acaba restaurando el script de
+        # una vista ya destruida. Aquí no hay turnos: el riel reparte.
+        self._wheel_client: Callable[[tk.Event], None] | None = None
+        self.bind_all("<MouseWheel>", self._on_wheel)
 
     # -------------------------------------------------------- clean band
 
@@ -346,21 +347,41 @@ class Sidebar(tk.Frame):
             > self._scroll.winfo_height() + 1
         )
 
-    def _grab_wheel(self, _event: object = None) -> None:
-        self._prev_wheel = self._scroll.bind_all("<MouseWheel>") or ""
-        self._scroll.bind_all("<MouseWheel>", self._on_wheel)
+    def set_wheel_client(
+        self, handler: Callable[[tk.Event], None] | None,
+    ) -> None:
+        """Quién recibe la rueda cuando el puntero no está sobre el riel.
 
-    def _release_wheel(self, _event: object = None) -> None:
-        if self._prev_wheel:
-            self._scroll.bind_all("<MouseWheel>", self._prev_wheel)
-        else:
-            self._scroll.unbind_all("<MouseWheel>")
-        self._prev_wheel = ""
+        La vista activa se apunta al construirse y se borra al morir; el
+        borrado comprueba que el manejador sigue siendo el suyo, porque
+        una vista que se destruye tarde no debe dejar sin rueda a la que
+        ya ocupó su sitio.
+        """
+        self._wheel_client = handler
+
+    def clear_wheel_client(self, handler: Callable[[tk.Event], None]) -> None:
+        # «==» y no «is»: cada `self._mousewheel` crea un objeto método
+        # nuevo, así que «is» no acertaría nunca y el borrado no borraría.
+        if self._wheel_client == handler:
+            self._wheel_client = None
+
+    def _pointer_over_rail(self, event: tk.Event) -> bool:
+        try:
+            x = event.x_root - self.winfo_rootx()
+            y = event.y_root - self.winfo_rooty()
+        except Exception:
+            return False
+        return 0 <= x < self.winfo_width() and 0 <= y < self.winfo_height()
 
     def _on_wheel(self, event: tk.Event) -> None:
-        if not self._overflows():
+        if not self._pointer_over_rail(event):
+            if self._wheel_client is not None:
+                self._wheel_client(event)
             return
-        self._scroll.yview_scroll(-1 if event.delta > 0 else 1, "units")
+        # Sobre el riel y sin nada que desplazar la rueda no hace nada,
+        # que no es lo mismo que pasársela al lienzo de detrás.
+        if self._overflows():
+            self._scroll.yview_scroll(-1 if event.delta > 0 else 1, "units")
 
     # ----------------------------------------------------------- step rail
 

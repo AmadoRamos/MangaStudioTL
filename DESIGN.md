@@ -428,6 +428,18 @@ Hard-won, each one behind a bug:
   `Modernist.Vertical.TScrollbar`.
 - **A `tk.Entry` can hold a newline** if you paste one into it. Do not
   rely on the widget type to enforce a single-line value.
+- **`bind_all` writes to the `all` tag, which holds one script per
+  sequence.** Two owners cannot share it: the second one silently
+  replaces the first, and "save the old script and put it back later" is
+  a trap — the script it restores may name a Tcl command Tk deleted when
+  the widget that owned it died. The wheel has exactly one owner, the
+  rail (`Sidebar._on_wheel`), which routes by pointer position and hands
+  the event to whatever the active view registered with
+  `set_wheel_client`.
+- **On Windows, Tk 8.6 delivers `<MouseWheel>` to the widget with
+  keyboard focus**, not the one under the pointer. A wheel binding on a
+  canvas that never takes focus may never fire. This is why the rail
+  routes by pointer position instead of trusting delivery.
 - **`pack_propagate(False)`** on any frame with a fixed width or height,
   or its children resize it.
 - **`before=` matters in `pack`.** Widgets that are hidden and re-shown

@@ -331,10 +331,10 @@ class MarksView(tk.Frame):
             "v", lambda: self._set_clean_mode(not self._viewing_clean),
         )
         self.bind_all("<Delete>", lambda _e: self._delete_from_key())
-        # Aquí y no en el constructor de la tira: ese solo se ejecuta al
-        # entrar en «Todas», así que la vista arrancaba en «Una» sin
-        # ningún enganche de rueda.
-        self.bind_all("<MouseWheel>", self._mousewheel)
+        # La rueda no se ata: la reparte el riel, que es su dueño único.
+        # Aquí y no en el constructor de la tira, que solo se ejecuta al
+        # entrar en «Todas» —la vista arrancaba en «Una» sin rueda—.
+        self._sidebar.set_wheel_client(self._mousewheel)
         for sequence, dx, dy in (
             ("<Left>", -1, 0), ("<Right>", 1, 0),
             ("<Up>", 0, -1), ("<Down>", 0, 1),
@@ -2094,9 +2094,13 @@ class MarksView(tk.Frame):
             self._sidebar.set_footer_hint(detail)
 
     def destroy(self) -> None:  # type: ignore[override]
+        try:
+            self._sidebar.clear_wheel_client(self._mousewheel)
+        except Exception:
+            pass
         for sequence in (
             "<KeyPress-e>", "<KeyPress-h>", "<KeyPress-z>", "<KeyPress-v>",
-            "<MouseWheel>", "<Delete>",
+            "<Delete>",
             "<Left>", "<Right>", "<Up>", "<Down>",
             "<Shift-Left>", "<Shift-Right>", "<Shift-Up>", "<Shift-Down>",
         ):

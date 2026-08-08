@@ -210,6 +210,63 @@ def test_marks_wheel() -> None:
     assert view._index == 0, "se salió por el principio"
 
 
+def test_wheel_dispatch() -> None:
+    """El riel reparte la rueda: si no es suya, es de la vista."""
+    from src.views.sidebar import Sidebar
+
+    class Event:
+        delta = 120
+
+    class Scroll:
+        def __init__(self) -> None:
+            self.scrolled: list[int] = []
+
+        def yview_scroll(self, amount: int, _what: str) -> None:
+            self.scrolled.append(amount)
+
+    class View:
+        def __init__(self) -> None:
+            self.got = 0
+
+        def wheel(self, _event: object) -> None:
+            self.got += 1
+
+    rail = Sidebar.__new__(Sidebar)
+    rail._scroll = Scroll()
+    rail._overflows = lambda: True  # type: ignore[method-assign]
+    rail._pointer_over_rail = lambda _e: over[0]  # type: ignore[method-assign]
+    over = [False]
+
+    view = View()
+    rail.set_wheel_client(view.wheel)
+
+    # Fuera del riel manda la vista.
+    rail._on_wheel(Event())
+    assert (view.got, rail._scroll.scrolled) == (1, []), view.got
+
+    # Sobre el riel manda el riel, y la vista no se entera.
+    over[0] = True
+    rail._on_wheel(Event())
+    assert (view.got, rail._scroll.scrolled) == (1, [-1])
+
+    # Sobre el riel sin nada que desplazar no pasa nada: la rueda no cae
+    # al lienzo de detrás solo porque el riel no tenga scroll.
+    rail._overflows = lambda: False  # type: ignore[method-assign]
+    rail._on_wheel(Event())
+    assert (view.got, rail._scroll.scrolled) == (1, [-1])
+
+    # Y el borrado borra de verdad, que con «is» no lo haría: cada
+    # acceso a un método ligado devuelve un objeto nuevo.
+    rail.clear_wheel_client(view.wheel)
+    assert rail._wheel_client is None
+    # Pero una vista que muere tarde no desbanca a la que ya ocupó su
+    # sitio.
+    later = View()
+    rail.set_wheel_client(later.wheel)
+    rail.clear_wheel_client(view.wheel)
+    assert rail._wheel_client is not None
+
+
 def test_box_precedence() -> None:
     """The section beats the chapter, and ``None`` means «sin tocar»."""
     mark = Mark(x=10, y=20, w=200, h=80, color="#ec3013")
@@ -381,6 +438,7 @@ if __name__ == "__main__":
         test_dialog_answers(root)
         test_button_variants()
         test_marks_wheel()
+        test_wheel_dispatch()
         test_box_precedence()
         test_profile_layer()
         test_rect_geometry()
