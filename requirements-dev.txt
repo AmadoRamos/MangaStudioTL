@@ -1,0 +1,11 @@
+# Herramientas de desarrollo. La aplicación no las importa: instálalas
+# aparte con  pip install -r requirements-dev.txt
+#
+# Van clavadas a una versión, y no con >= como las de runtime, por una
+# razón concreta: una versión nueva de pylint estrena comprobaciones, y
+# una comprobación nueva baja la puntuación de un código que no ha
+# cambiado. Con el listón en 7.5, eso convierte una actualización
+# silenciosa en un fallo que no lo es. Subirlas es una decisión, no algo
+# que pase solo.
+pytest==9.1.1
+pylint==4.0.6
