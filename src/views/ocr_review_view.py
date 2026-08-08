@@ -466,10 +466,24 @@ class OcrReviewView(tk.Frame):
         self._refresh_pair_card()
 
     def _ensure_pair_clicked(self) -> None:
-        self._status.set(
-            f"Descargando el par {self._source_lang}→{self._target_lang}…",
-            "working",
-        )
+        pair = f"{self._source_lang}→{self._target_lang}"
+        if self._translator.is_pair_available(
+            self._source_lang, self._target_lang,
+        ):
+            # Pulsar «Descargar» y que no se descargue nada es lo único
+            # que hay que contestar con un modal aun habiendo barra: la
+            # barra cuenta lo que ocurre, no responde a un clic que no
+            # hizo nada. La tarjeta se rehace por si estaba desfasada.
+            self._refresh_pair_card()
+            theme.alert(
+                self,
+                "Par ya instalado",
+                f"El par {pair} ya estaba instalado. No hay nada que "
+                "descargar.",
+            )
+            return
+
+        self._status.set(f"Descargando el par {pair}…", "working")
         self.update_idletasks()
         ok = self._translator.ensure_pair(self._source_lang, self._target_lang)
         self._refresh_pair_card()

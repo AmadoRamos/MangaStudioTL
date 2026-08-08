@@ -357,6 +357,11 @@ severity of the message but whether an answer is needed:
 - **It only tells** — the status bar, whenever the screen has one. Every
   step's view does; `home_view` does not, which is the only reason its
   four messages are `alert`.
+- **The exception: a button whose whole outcome is «nothing to do».**
+  Step 3's «Descargar par» with the pair already installed answers with
+  an `alert`, bar or no bar. The status bar narrates what is happening;
+  it does not answer a click, and a download button that downloads
+  nothing and says so in a footer line reads as broken.
 
 An `alert` next to a `StatusBar` is almost always the message being said
 twice. The button of a `confirm` is `primary` — the accent is already
