@@ -9,63 +9,7 @@ funcionamiento del flujo, en [README.md](README.md).
 
 ---
 
-## 1 · Paso 4 (Render) · perfiles de texto
-
-**Qué.** Un perfil guarda fuente, tamaño, color y negrita/cursiva bajo un
-nombre («Diálogo», «Grito», «Narración», «Pensamiento»). Asignar un perfil a
-una sección es un atajo, no una atadura: **el valor específico de la sección
-manda sobre el perfil.**
-
-**Precedencia** (de más fuerte a más débil), que es la regla que hay que
-implementar y probar:
-
-```
-valor puesto a mano en la sección  >  perfil asignado  >  RenderConfig global
-```
-
-**Estado actual.** El resolvedor ya está: `resolve_box(mark, entry, config)`
-(`src/utils/text_renderer.py`) es el único sitio donde la capa específica gana a
-la global, y `RenderConfig` es esa capa global — que hasta ahora eran dos
-atributos sueltos en el controlador (`controller.py:53-54`) copiados a mano en
-tres módulos. El exportador, el lienzo y el inspector lo llaman a él.
-
-`TranslationEntry` es la capa específica y sus campos son `None` cuando no se
-han tocado — que es justo lo que hace falta para distinguir «no puesto» de
-«puesto igual que el perfil». Esa distinción es toda la funcionalidad; si un
-campo se rellena al asignar el perfil, la regla de precedencia se pierde.
-
-**Lo que queda.**
-
-- Modelo del perfil: `nombre, font_family, max_pt, color, bold, italic`.
-- `TranslationEntry` — `profile: str | None`, guardando el **nombre**, no una
-  copia de los valores.
-- Dónde viven los perfiles: son del usuario, no del capítulo. Un JSON propio en
-  la raíz. `json.dump` / `json.load` sobre un dict y poco más: `recent_paths.py`
-  es largo por normalizar rutas de Windows y descartar carpetas borradas, nada
-  de lo cual aplica aquí.
-- `resolve_box` pasa a recibir el perfil como capa intermedia:
-  `entrada > perfil > RenderConfig`. Un parámetro más, no una cuarta copia de
-  la regla.
-- `src/views/render_view.py` — selector de perfil en el inspector, un
-  «restablecer» por campo que devuelve el campo a `None` (o sea, al perfil), un
-  «Guardar como perfil…» que toma los valores de la sección seleccionada y un
-  «Aplicar a toda la página».
-
-**Decidido.**
-
-- **Asignar a varias secciones**: botón «Aplicar a toda la página» en el
-  inspector que ya existe, no una superficie nueva. Todo el capítulo de golpe,
-  si hace falta, después.
-- **Editar un perfil actualiza las secciones que lo usan**: sí, y sale gratis
-  porque la entrada guarda el nombre. Solo cambian los campos que la sección no
-  había tocado.
-- **Perfiles de fábrica**: ninguno. La lista empieza vacía y se llena con
-  «Guardar como perfil…» desde una sección real, en vez de con cuatro juegos de
-  valores inventados que nadie pidió.
-
----
-
-## 2 · Paso 4 (Render) · redimensionar el cuadro de la sección
+## 1 · Paso 4 (Render) · redimensionar el cuadro de la sección
 
 **Qué.** Poder cambiar el tamaño y la posición del cuadro de texto en el
 render, para colocarlo bien en el producto final.
@@ -100,7 +44,7 @@ define *qué se borra* (paso 2) y aquí hace falta definir *dónde se escribe*.
 
 ---
 
-## 3 · Dejar el alert nativo y hacer uno con el estilo de la app
+## 2 · Dejar el alert nativo y hacer uno con el estilo de la app
 
 **Qué.** Sustituir `tkinter.messagebox` por un diálogo propio, con la tipografía,
 los colores y los botones del resto de la aplicación. El messagebox de Tk usa el
@@ -117,7 +61,7 @@ Cancelar» del sistema operativo. Es lo único que rompe el aspecto de la app.
 | `askyesno` | `marks_view.py:1648` | devuelve `bool`, bloquea |
 | `askokcancel` | `home_view.py:242`, `marks_view.py:1777`, `ocr_review_view.py:655` | devuelve `bool`, bloquea |
 
-Las otras 3 están en `base_marks_view.py` (código muerto, ver el punto 4).
+Las otras 3 están en `base_marks_view.py` (código muerto, ver el punto 3).
 
 **El patrón ya existe.** `src/views/export_dialog.py` es exactamente esto hecho
 a mano: `Toplevel` con `COLOR_BG`, borde de 2 px con `highlightthickness`,
@@ -155,7 +99,7 @@ trabajo es generalizarlo, no inventarlo.
 
 ---
 
-## 4 · Revisar el uso del tema
+## 3 · Revisar el uso del tema
 
 Del repaso de DESIGN.md contra el código. Nada de esto rompe la aplicación;
 son incoherencias con el sistema visual ya documentado.
@@ -165,7 +109,7 @@ y `base_marks_view.py` concentran casi todas las infracciones (`tk.Button`
 crudo, tuplas de fuente literales, `#666666`, `#9a9a9a`), pero el README ya los
 marca como *legacy, sin uso*: ningún módulo activo los importa. **A decidir: se
 borran o se dejan.** Borrarlos quita 3 de los 4 hallazgos de golpe, y también
-los 3 `messagebox` del punto 3.
+los 3 `messagebox` del punto 2.
 
 **Código vivo.**
 
@@ -197,7 +141,7 @@ página final, no la interfaz. Conviene anotarlo en DESIGN.md para que no se
 
 ---
 
-## 5 · Paso 2 (Marcar) · la rueda no desplaza mientras se marca
+## 4 · Paso 2 (Marcar) · la rueda no desplaza mientras se marca
 
 **Qué.** Con el modo de edición encendido —o sea, justo mientras se están
 añadiendo marcas— la rueda del ratón no mueve la imagen. Hay que apagar la
@@ -239,7 +183,7 @@ edición, desplazarse y volver a encenderla.
 
 ---
 
-## 6 · Paso 3 (Traducir) · el texto largo se corta en vez de seguir abajo
+## 5 · Paso 3 (Traducir) · el texto largo se corta en vez de seguir abajo
 
 **Qué.** Cuando una traducción no cabe en el ancho de la columna, el final
 desaparece. Debería continuar en otra línea.
@@ -311,7 +255,20 @@ desaparece. Debería continuar en otra línea.
   un único sitio qué se va a dibujar de verdad, y con eso el riel avisa
   cuando la familia no tiene la variante en vez de que el conmutador
   parezca roto. `bold`/`italic` son `None` mientras nadie los toque, que
-  es justo la distinción que necesitan los perfiles del punto 1.
+  es justo la distinción sobre la que se construyeron después los
+  perfiles de texto.
+- **Paso 4 · perfiles de texto** — un perfil («Diálogo», «Grito»…) guarda
+  fuente, tamaño, color y estilo bajo un nombre, y se mete como capa
+  intermedia de la precedencia: `sección > perfil > capítulo`. Asignarlo
+  escribe el **nombre** en el sidecar y nunca una copia de los valores, que
+  es lo que hace que editar un perfil alcance a las secciones que lo usan
+  —solo en los campos que ellas no tocaron— y que un nombre borrado se lea
+  como «ninguno» en vez de reventar. Los perfiles son de quien rotula, no
+  del capítulo, así que viven en `text_profiles.json` en la raíz. La lista
+  empieza vacía: **Guardar como perfil…** lo crea con lo que se ve en la
+  sección seleccionada (y guardar con un nombre existente lo edita), **A
+  toda la página** lo reparte, y el **↺** de cada campo lo devuelve al
+  perfil —solo aparece cuando hay algo que deshacer—.
 - **Un solo resolvedor de estilo** — `resolve_box(mark, entry, config)` en
   `text_renderer.py` es el único sitio donde «lo que puso la sección» gana a
   «lo que dice el capítulo», y `RenderConfig` es esa capa global. Antes la regla

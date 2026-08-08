@@ -8,6 +8,7 @@ __pycache__/
 # Salida en tiempo de ejecución
 logs/
 .last_folder
+text_profiles.json
 
 # Artefactos que genera la app junto a las páginas
 *.clean.png

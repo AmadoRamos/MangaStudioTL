@@ -39,10 +39,13 @@ from src.config import (
 from src.utils.exporter import export_translations
 from src.utils.inpainter import find_clean, has_clean
 from src.utils.logger import get_logger
+from src.utils import text_profiles
 from src.utils.marks_store import MarksStore, TranslationEntry
+from src.utils.text_profiles import TextProfile
 from src.utils.text_renderer import (
     RenderConfig,
     list_available_families,
+    resolve_box,
     resolve_style,
 )
 from src.views import theme
@@ -56,6 +59,9 @@ log = get_logger("render_view")
 MB_PER_PAGE = 1.3
 #: Quiet time before what was typed in the rail reaches the page.
 TEXT_ECHO_MS = 220
+#: The «no profile» row of the selector. Not a profile name: a section
+#: with no profile falls straight through to the chapter defaults.
+NO_PROFILE = "(ninguno)"
 
 
 class RenderView(tk.Frame):
@@ -76,6 +82,7 @@ class RenderView(tk.Frame):
             font_family=workflow.font_family,
             max_pt=workflow.max_pt,
             color=TEXT_RENDER_DEFAULT_COLOR,
+            profiles=text_profiles.load(),
         )
         self._font_options: list[str] = self._build_font_options()
 
@@ -83,6 +90,12 @@ class RenderView(tk.Frame):
         self._inspector: tk.Frame | None = None
         self._text_widget: tk.Text | None = None
         self._font_var: tk.StringVar | None = None
+        self._profile_var: tk.StringVar | None = None
+        self._name_var: tk.StringVar | None = None
+        #: Which section has the «guardar como perfil» field open, if
+        #: any. Held as the mark id and not as a flag so that moving to
+        #: another section closes it without anyone remembering to.
+        self._naming_for: int | None = None
         self._size_var: tk.IntVar | None = None
         self._size_label: tk.Label | None = None
         self._bold_btn: tk.Button | None = None
@@ -214,7 +227,8 @@ class RenderView(tk.Frame):
             head, f"{position} / {len(sections)}", kind="accent",
         ).pack(side=tk.RIGHT)
 
-        max_pt = entry.max_pt if entry.max_pt is not None else self._config.max_pt
+        asked_max = self._config.asked(entry, "max_pt")
+        max_pt = asked_max if asked_max is not None else self._config.max_pt
         theme.body(
             self._inspector,
             f"{mark.w} × {mark.h} px · auto-fit hasta {max_pt} pt",
@@ -230,10 +244,40 @@ class RenderView(tk.Frame):
         self._text_widget.bind("<Control-Return>", lambda _e: self._commit_text())
         self._text_widget.bind("<KeyRelease>", self._on_text_key)
 
+        # Profile. It governs the four controls under it, so it sits
+        # right on top of them.
+        # No reset here: «(ninguno)» in the selector is that reset.
+        self._label_row("Perfil")
+        self._profile_var = tk.StringVar(value=entry.profile or NO_PROFILE)
+        theme.option_menu(
+            self._inspector, self._profile_var,
+            [NO_PROFILE, *(p.name for p in self._config.profiles)],
+            self._on_profile_change,
+        ).pack(fill=tk.X, pady=(0, 4))
+        actions = tk.Frame(self._inspector, bg=SIDEBAR_BG)
+        actions.pack(fill=tk.X, pady=(0, 10))
+        theme.button(
+            actions, "Guardar como perfil…", self._begin_naming,
+            variant="ghost", size=8, padx=6, pady=4,
+            tooltip="Crear un perfil con lo que se ve en esta sección",
+        ).pack(side=tk.LEFT)
+        if entry.profile and len(sections) > 1:
+            theme.button(
+                actions, "A toda la página", self._apply_profile_to_page,
+                variant="ghost", size=8, padx=6, pady=4,
+                tooltip=(
+                    f"Asignar «{entry.profile}» a las {len(sections)} "
+                    "secciones de esta página"
+                ),
+            ).pack(side=tk.RIGHT)
+        if self._naming_for == mark_id:
+            self._build_name_row()
+
         # Font.
-        theme.field_label(self._inspector, "Fuente").pack(fill=tk.X, pady=(0, 5))
+        self._label_row("Fuente", "font_family")
         self._font_var = tk.StringVar(
-            value=entry.font_family or self._config.font_family,
+            value=self._config.asked(entry, "font_family")
+            or self._config.font_family,
         )
         theme.option_menu(
             self._inspector, self._font_var, self._font_options,
@@ -243,19 +287,19 @@ class RenderView(tk.Frame):
         # Style. Two independent toggles rather than three exclusive
         # options: «normal» is both of them off, and negrita + cursiva
         # together is something rotulación actually uses.
-        theme.field_label(self._inspector, "Estilo").pack(fill=tk.X, pady=(0, 5))
+        self._label_row("Estilo", "bold", "italic")
         style_row = tk.Frame(self._inspector, bg=SIDEBAR_BG)
         style_row.pack(fill=tk.X)
         self._bold_btn = theme.button(
             style_row, "Negrita", lambda: self._toggle_style("bold"),
-            variant="ink" if entry.bold else "outline",
+            variant="ink" if self._config.asked(entry, "bold") else "outline",
             size=8, padx=10, pady=5,
             tooltip="Usar la variante negrita de esta fuente",
         )
         self._bold_btn.pack(side=tk.LEFT, padx=(0, 4))
         self._italic_btn = theme.button(
             style_row, "Cursiva", lambda: self._toggle_style("italic"),
-            variant="ink" if entry.italic else "outline",
+            variant="ink" if self._config.asked(entry, "italic") else "outline",
             size=8, padx=10, pady=5,
             tooltip="Usar la variante cursiva de esta fuente",
         )
@@ -271,10 +315,9 @@ class RenderView(tk.Frame):
         self._sync_style_note(entry)
 
         # Maximum size.
-        self._size_label = theme.field_label(
-            self._inspector, f"Tamaño máximo · {max_pt} pt",
+        self._size_label = self._label_row(
+            f"Tamaño máximo · {max_pt} pt", "max_pt", pady=(0, 2),
         )
-        self._size_label.pack(fill=tk.X, pady=(0, 2))
         self._size_var = tk.IntVar(value=max_pt)
         theme.slider(
             self._inspector,
@@ -296,10 +339,10 @@ class RenderView(tk.Frame):
         ).pack(side=tk.RIGHT)
 
         # Colour.
-        theme.field_label(self._inspector, "Color").pack(fill=tk.X, pady=(0, 5))
+        self._label_row("Color", "color")
         self._swatch_row = tk.Frame(self._inspector, bg=SIDEBAR_BG)
         self._swatch_row.pack(fill=tk.X)
-        current = entry.color or self._config.color
+        current = self._config.asked(entry, "color") or self._config.color
         for color in TEXT_COLOR_PRESETS:
             theme.swatch(
                 self._swatch_row, _rgb_to_hex(color),
@@ -325,6 +368,50 @@ class RenderView(tk.Frame):
                 lambda: self._step_section(1),
                 variant="secondary", size=8, padx=8, pady=6,
             ).pack(side=tk.RIGHT)
+
+    def _label_row(
+        self, text: str, *fields: str, pady: tuple[int, int] = (0, 5),
+    ) -> tk.Label:
+        """Pack a field label, plus a «restablecer» if the section overrides it.
+
+        The reset only appears when there is something to undo: one that
+        is always there says nothing about whether this section differs
+        from its profile, which is the single question it answers.
+        Returns the label so the caller can keep reconfiguring it.
+        """
+        row = tk.Frame(self._inspector, bg=SIDEBAR_BG)
+        row.pack(fill=tk.X, pady=pady)
+        label = theme.field_label(row, text)
+        label.pack(side=tk.LEFT)
+        entry = self._current_entry()
+        if entry is not None and any(
+            getattr(entry, field) is not None for field in fields
+        ):
+            theme.button(
+                row, "↺", lambda: self._reset_fields(*fields),
+                variant="ghost", size=8, padx=4, pady=0,
+                tooltip="Volver a lo que diga el perfil",
+            ).pack(side=tk.RIGHT)
+        return label
+
+    def _build_name_row(self) -> None:
+        """The inline «cómo se va a llamar» field, in the rail itself.
+
+        A modal to ask for one word would be the only dialog in the step
+        and would not look like the rest of the app.
+        """
+        row = tk.Frame(self._inspector, bg=SIDEBAR_BG)
+        row.pack(fill=tk.X, pady=(0, 10))
+        self._name_var = tk.StringVar()
+        field = theme.entry(row, self._name_var)
+        field.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        field.bind("<Return>", lambda _e: self._save_profile())
+        field.bind("<Escape>", lambda _e: self._cancel_naming())
+        field.focus_set()
+        theme.button(
+            row, "Guardar", self._save_profile,
+            variant="primary", size=8, padx=8, pady=4,
+        ).pack(side=tk.RIGHT, padx=(4, 0))
 
     def _translated_sections(self) -> list[int]:
         if not self._stores:
@@ -417,6 +504,115 @@ class RenderView(tk.Frame):
             pass
         self._text_after_id = None
 
+    def _reset_fields(self, *fields: str) -> None:
+        """Hand the fields back to the profile — or to the chapter default."""
+        self._update_entry(**{field: None for field in fields})
+        self._render_inspector()
+
+    # ------------------------------------------------------------------
+    # Profiles
+    # ------------------------------------------------------------------
+
+    def _on_profile_change(self, label: str) -> None:
+        """Assign a profile, or take it away.
+
+        Nothing else is touched: the fields this section had chosen for
+        itself stay chosen. That is the difference between a shortcut
+        and an atadura, and it only holds while the assignment writes
+        the *name* and never copies the values.
+        """
+        self._update_entry(profile=None if label == NO_PROFILE else label)
+        self._render_inspector()
+
+    def _begin_naming(self) -> None:
+        self._naming_for = self._selected_mark
+        self._render_inspector()
+
+    def _cancel_naming(self) -> None:
+        self._naming_for = None
+        self._render_inspector()
+
+    def _save_profile(self) -> None:
+        """Turn what this section looks like into a profile with a name.
+
+        The values are the effective ones — what the rail is showing —
+        and not just the overrides: a profile built from a section that
+        had changed nothing would come out empty and look broken.
+        """
+        entry = self._current_entry()
+        name = self._name_var.get().strip() if self._name_var else ""
+        if not name or entry is None or self._selected_mark is None:
+            self._cancel_naming()
+            return
+        mark = self._stores[self._index].marks[self._selected_mark]
+        box = resolve_box(mark, entry, self._config)
+        profile = TextProfile(
+            name=name,
+            font_family=box.font_family,
+            max_pt=box.max_pt,
+            color=box.color,
+            # Lo pedido, no lo dibujado: un perfil guardado desde una
+            # familia sin negrita instalada tiene que seguir diciendo
+            # «negrita» cuando se aplique a otra que sí la tenga.
+            bold=bool(self._config.asked(entry, "bold")),
+            italic=bool(self._config.asked(entry, "italic")),
+        )
+        # Guardar con un nombre que ya existe es editar ese perfil, y
+        # editarlo alcanza a todas las secciones que lo usan — en los
+        # campos que esas secciones no hayan tocado.
+        profiles = list(self._config.profiles)
+        for i, existing in enumerate(profiles):
+            if existing.name == name:
+                profiles[i] = profile
+                break
+        else:
+            profiles.append(profile)
+        self._set_profiles(tuple(profiles))
+        self._naming_for = None
+        self._update_entry(profile=name)
+        self._render_inspector()
+        self._status.set(f"Perfil «{name}» guardado", "success")
+
+    def _apply_profile_to_page(self) -> None:
+        """Give every section on this page the selected one's profile.
+
+        Only the profile. A section that had picked its own colour or
+        size keeps it, because the profile is the weaker layer — which
+        is what makes «todo esto es diálogo» safe to click.
+        """
+        entry = self._current_entry()
+        if entry is None or not entry.profile:
+            return
+        store = self._stores[self._index]
+        changed = 0
+        for mark_id in self._translated_sections():
+            other = store.get_translation(mark_id)
+            if other is None or other.profile == entry.profile:
+                continue
+            store.set_translation(
+                mark_id, replace(other, profile=entry.profile, edited=True),
+            )
+            changed += 1
+        self._canvas.refresh()
+        self._render_inspector()
+        self._status.set(
+            f"«{entry.profile}» aplicado a {changed} sección(es)", "success",
+        )
+
+    def _set_profiles(self, profiles: tuple[TextProfile, ...]) -> None:
+        """Publish the new list: to the canvas, and to disk.
+
+        The canvas repaints because its config changed, which is how
+        editing a profile reaches the sections already using it.
+        """
+        self._config = replace(self._config, profiles=profiles)
+        self._canvas.set_render_config(self._config)
+        if not text_profiles.save(profiles):
+            self._status.set(
+                "El perfil no se pudo guardar en disco; vale para esta sesión",
+                "warning",
+            )
+
     def _on_font_change(self, _label: str) -> None:
         if self._font_var is None:
             return
@@ -430,7 +626,12 @@ class RenderView(tk.Frame):
         entry = self._current_entry()
         if entry is None:
             return
-        self._update_entry(**{field: not bool(getattr(entry, field))})
+        # Se invierte lo que se está viendo, que puede venir del perfil:
+        # apagar una negrita heredada es ponerle `False` a la sección,
+        # no dejarla «sin tocar» y que el perfil la vuelva a encender.
+        self._update_entry(
+            **{field: not bool(self._config.asked(entry, field))},
+        )
         self._sync_style_controls()
 
     def _sync_style_controls(self) -> None:
@@ -444,8 +645,8 @@ class RenderView(tk.Frame):
         if entry is None:
             return
         for btn, is_on in (
-            (self._bold_btn, bool(entry.bold)),
-            (self._italic_btn, bool(entry.italic)),
+            (self._bold_btn, bool(self._config.asked(entry, "bold"))),
+            (self._italic_btn, bool(self._config.asked(entry, "italic"))),
         ):
             if btn is not None:
                 theme.restyle_button(btn, "ink" if is_on else "outline")
@@ -460,14 +661,19 @@ class RenderView(tk.Frame):
         """
         if self._style_note is None or entry is None:
             return
-        family = entry.font_family or self._config.font_family
+        family = (
+            self._config.asked(entry, "font_family")
+            or self._config.font_family
+        )
+        asked_bold = bool(self._config.asked(entry, "bold"))
+        asked_italic = bool(self._config.asked(entry, "italic"))
         drawn_bold, drawn_italic = resolve_style(
-            family, bool(entry.bold), bool(entry.italic),
+            family, asked_bold, asked_italic,
         )
         missing: list[str] = []
-        if entry.bold and not drawn_bold:
+        if asked_bold and not drawn_bold:
             missing.append("negrita")
-        if entry.italic and not drawn_italic:
+        if asked_italic and not drawn_italic:
             missing.append("cursiva")
         if not missing:
             self._style_note.pack_forget()
@@ -501,9 +707,8 @@ class RenderView(tk.Frame):
 
     def _pick_color(self) -> None:
         entry = self._current_entry()
-        initial = _rgb_to_hex(
-            entry.color if entry and entry.color else self._config.color,
-        )
+        asked = self._config.asked(entry, "color") if entry else None
+        initial = _rgb_to_hex(asked or self._config.color)
         result = colorchooser.askcolor(
             color=initial, title="Color del texto", parent=self,
         )

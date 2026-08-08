@@ -39,6 +39,7 @@ from src.config import (
 )
 from src.utils.logger import get_logger
 from src.utils.marks_store import Mark, TranslationEntry
+from src.utils.text_profiles import TextProfile
 
 log = get_logger("text_renderer")
 
@@ -385,16 +386,61 @@ class FitResult:
 
 @dataclass(frozen=True)
 class RenderConfig:
-    """The chapter-wide layer a section falls back to.
+    """Everything the resolver needs that is not the section itself.
 
-    Every field has a per-section counterpart on
+    The first three fields are the chapter-wide layer: each has a
+    per-section counterpart on
     :class:`~src.utils.marks_store.TranslationEntry` that stays ``None``
-    until somebody touches it.
+    until somebody touches it. ``profiles`` is the user's set of named
+    looks, carried here so that whoever can draw a box can also resolve
+    the one a section was assigned — a handful of entries, looked up by
+    name.
     """
 
     font_family: str | None = None
     max_pt: int = TEXT_RENDER_MAX_PT
     color: tuple[int, int, int] = TEXT_RENDER_DEFAULT_COLOR
+    profiles: tuple[TextProfile, ...] = ()
+
+    def profile(self, name: str | None) -> TextProfile | None:
+        """The profile called ``name``, or ``None`` if there is no such thing.
+
+        A section can name a profile the user has since renamed or
+        deleted; that reads as no profile, never as an error.
+        """
+        if not name:
+            return None
+        for profile in self.profiles:
+            if profile.name == name:
+                return profile
+        return None
+
+    def asked(self, entry: TranslationEntry, field: str):
+        """What the section and its profile say about one field.
+
+        The two strongest layers of the precedence rule, without the
+        chapter-wide floor underneath — «¿ha elegido alguien esto?»,
+        which is a different question from «¿con qué se dibuja?». The
+        rail needs this one to know whether a «restablecer» has anything
+        to undo, and to show a toggle as on because the profile says so.
+        """
+        value = getattr(entry, field)
+        if value is None or value == "":
+            profile = self.profile(entry.profile)
+            value = getattr(profile, field) if profile is not None else None
+        return value
+
+
+def _first_set(*layers):
+    """The first layer that actually says something.
+
+    ``None`` is «sin tocar» and an empty string is a font family nobody
+    chose; anything else — including ``False`` — is an answer.
+    """
+    for value in layers:
+        if value is not None and value != "":
+            return value
+    return None
 
 
 def resolve_box(
@@ -402,8 +448,14 @@ def resolve_box(
 ) -> TextBox:
     """The box a section is actually drawn with.
 
-    Precedence: what the section says beats ``config``, and ``None`` on
-    the entry means «sin tocar», not «puesto igual que el defecto».
+    Precedence, strongest first::
+
+        lo que la sección puso a mano  >  su perfil  >  RenderConfig
+
+    ``None`` on the entry means «sin tocar», not «puesto igual que el
+    perfil» — which is why assigning a profile must never fill those
+    fields in. Editing a profile therefore reaches every section using
+    it, but only in the fields that section left alone.
 
     The style that comes back is the one that will be *drawn*, not the
     one that was asked for: a family with no bold on disk yields
@@ -411,16 +463,20 @@ def resolve_box(
     preview, the exported PNG and the sidecar cannot disagree about a
     colour or a variant they did not each work out for themselves.
     """
-    family = entry.font_family or config.font_family
-    bold, italic = resolve_style(family, bool(entry.bold), bool(entry.italic))
+    family = _first_set(config.asked(entry, "font_family"), config.font_family)
+    bold, italic = resolve_style(
+        family,
+        bool(config.asked(entry, "bold")),
+        bool(config.asked(entry, "italic")),
+    )
     return TextBox(
         x=mark.x,
         y=mark.y,
         w=mark.w,
         h=mark.h,
         text=entry.text,
-        color=entry.color or config.color,
-        max_pt=entry.max_pt if entry.max_pt is not None else config.max_pt,
+        color=_first_set(config.asked(entry, "color"), config.color),
+        max_pt=_first_set(config.asked(entry, "max_pt"), config.max_pt),
         font_family=family,
         bold=bold,
         italic=italic,

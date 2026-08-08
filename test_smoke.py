@@ -3,10 +3,13 @@
 Run with: python test_smoke.py
 """
 
+import tempfile
 import tkinter as tk
+from pathlib import Path
 
 from src.utils.background_worker import BackgroundWorker
 from src.utils.marks_store import Mark, TranslationEntry
+from src.utils.text_profiles import TextProfile
 from src.utils.text_renderer import RenderConfig, resolve_box
 
 
@@ -84,6 +87,78 @@ def test_box_precedence() -> None:
         assert (box.bold, box.italic) == (False, False), (asked, box)
 
 
+def test_profile_layer() -> None:
+    """El perfil se mete entre la sección y el capítulo, sin pisar nada."""
+    from dataclasses import replace
+
+    mark = Mark(x=0, y=0, w=200, h=80, color="#ec3013")
+    grito = TextProfile(
+        name="Grito", font_family="Georgia", max_pt=60, color=(255, 0, 0),
+    )
+    config = RenderConfig(
+        font_family="Arial", max_pt=36, color=(0x20, 0x1E, 0x1D),
+        profiles=(grito,),
+    )
+    entry = TranslationEntry(
+        text="¡AH!", source_lang="en", target_lang="es", profile="Grito",
+    )
+
+    # Sin nada puesto a mano, manda el perfil y no el capítulo.
+    box = resolve_box(mark, entry, config)
+    assert (box.font_family, box.max_pt, box.color) == (
+        "Georgia", 60, (255, 0, 0),
+    ), box
+
+    # Lo que la sección puso a mano gana al perfil; lo que no tocó, no.
+    own = replace(entry, color=(0, 0, 255))
+    box = resolve_box(mark, own, config)
+    assert box.color == (0, 0, 255), box.color
+    assert box.max_pt == 60, box.max_pt
+
+    # Editar el perfil alcanza a la sección — en los campos que ella no
+    # eligió. Es la razón de guardar el nombre y no una copia.
+    edited = replace(config, profiles=(replace(grito, max_pt=24),))
+    box = resolve_box(mark, own, edited)
+    assert box.max_pt == 24, box.max_pt
+    assert box.color == (0, 0, 255), box.color
+
+    # Un perfil renombrado o borrado se lee como «ninguno», no como error.
+    orphan = replace(entry, profile="Ya no existe")
+    assert resolve_box(mark, orphan, config).max_pt == 36
+
+
+def test_profiles_round_trip(tmp_file) -> None:
+    """Lo que se escribe se vuelve a leer; lo ilegible es «no hay perfiles»."""
+    from src.utils import text_profiles
+
+    original = text_profiles._PATH
+    text_profiles._PATH = tmp_file
+    try:
+        assert text_profiles.load() == ()          # todavía no existe
+
+        saved = (
+            TextProfile(name="Diálogo", font_family="Segoe UI", max_pt=28),
+            # Un perfil que solo dice una cosa es legítimo: los demás
+            # campos siguen cayendo al capítulo.
+            TextProfile(name="Grito", bold=True, color=(255, 0, 0)),
+        )
+        assert text_profiles.save(saved)
+        assert text_profiles.load() == saved
+
+        # Sin nombre no es un perfil, y un duplicado haría que la sección
+        # dependiese del orden del archivo.
+        tmp_file.write_text(
+            '[{"name": "A"}, {"max_pt": 12}, {"name": "A", "max_pt": 99}]',
+            encoding="utf-8",
+        )
+        assert text_profiles.load() == (TextProfile(name="A"),)
+
+        tmp_file.write_text("{ esto no es json", encoding="utf-8")
+        assert text_profiles.load() == ()
+    finally:
+        text_profiles._PATH = original
+
+
 if __name__ == "__main__":
     root = tk.Tk()
     root.withdraw()
@@ -91,6 +166,9 @@ if __name__ == "__main__":
         test_emit_dispatches_by_name(root)
         test_drop_data_splitting(root)
         test_box_precedence()
+        test_profile_layer()
+        with tempfile.TemporaryDirectory() as tmp:
+            test_profiles_round_trip(Path(tmp) / "text_profiles.json")
     finally:
         root.destroy()
     print("OK")

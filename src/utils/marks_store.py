@@ -31,7 +31,8 @@ defined in the original image's pixel coordinates. The schema is:
                 "color": [0, 0, 0],
                 "font_family": "Arial",
                 "max_pt": 24,
-                "bold": true
+                "bold": true,
+                "profile": "Grito"
             }
         }
     }
@@ -43,6 +44,11 @@ The per-section overrides of a translation (``color``, ``font_family``,
 ``max_pt``, ``bold``, ``italic``) are optional in the same way: the key
 is absent while nobody has touched it, which is what tells «sin tocar»
 apart from «puesto a este valor a propósito».
+
+``profile`` names one of the user's text profiles, which live in their
+own file (``src/utils/text_profiles.py``) and not here: a profile
+belongs to whoever letters the pages, not to one chapter. A name that no
+longer exists reads as no profile at all.
 
 ``clean_signature`` fingerprints the boxes the ``.clean`` version on disk
 was made from, so a page whose marks moved afterwards can be told apart
@@ -181,11 +187,35 @@ class OcrEntry:
         )
 
 
-def _opt_bool(raw: Any) -> bool | None:
+# Los tres leen «la clave no estaba» como ``None``, que en este esquema
+# significa «sin tocar» y no «puesto al valor por defecto». Viven aquí
+# porque aquí está el modelo, y los usan también los perfiles de texto.
+
+def opt_bool(raw: Any) -> bool | None:
     """``None`` si la clave no estaba; un booleano si estaba."""
     if raw is None:
         return None
     return bool(raw)
+
+
+def opt_int(raw: Any) -> int | None:
+    """Un entero, o ``None`` si falta o si no hay forma de leerlo así."""
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+def opt_color(raw: Any) -> tuple[int, int, int] | None:
+    """Un ``[r, g, b]`` del JSON como tupla, o ``None``."""
+    if not isinstance(raw, (list, tuple)) or len(raw) < 3:
+        return None
+    try:
+        return (int(raw[0]), int(raw[1]), int(raw[2]))
+    except (TypeError, ValueError):
+        return None
 
 
 @dataclass(frozen=True)
@@ -195,8 +225,11 @@ class TranslationEntry:
     ``color``, ``font_family``, ``max_pt``, ``bold`` and ``italic`` are
     the per-section overrides, and they are ``None`` when nobody touched
     them. That is not the same as «puesto igual que el valor por
-    defecto»: the difference is what will let a text profile fill in the
-    untouched fields without overwriting the ones the user chose.
+    defecto»: the difference is what lets the assigned text profile fill
+    in the untouched fields without overwriting the ones the user chose.
+
+    ``profile`` holds the profile's *name*, never a copy of its values —
+    otherwise editing a profile could not reach the sections using it.
     """
 
     text: str
@@ -210,6 +243,7 @@ class TranslationEntry:
     max_pt: int | None = None
     bold: bool | None = None
     italic: bool | None = None
+    profile: str | None = None
 
     def to_dict(self) -> dict:
         d = asdict(self)
@@ -218,28 +252,6 @@ class TranslationEntry:
 
     @classmethod
     def from_dict(cls, data: dict) -> "TranslationEntry":
-        color_raw = data.get("color")
-        color: tuple[int, int, int] | None
-        if isinstance(color_raw, (list, tuple)) and len(color_raw) >= 3:
-            try:
-                color = (
-                    int(color_raw[0]),
-                    int(color_raw[1]),
-                    int(color_raw[2]),
-                )
-            except (TypeError, ValueError):
-                color = None
-        else:
-            color = None
-        max_pt_raw = data.get("max_pt")
-        max_pt: int | None
-        if max_pt_raw is None:
-            max_pt = None
-        else:
-            try:
-                max_pt = int(max_pt_raw)
-            except (TypeError, ValueError):
-                max_pt = None
         return cls(
             text=str(data.get("text", "")),
             source_lang=str(data.get("source_lang", "")),
@@ -247,13 +259,14 @@ class TranslationEntry:
             engine=str(data.get("engine", "argos")),
             edited=bool(data.get("edited", False)),
             ran_at=str(data.get("ran_at", "")),
-            color=color,
+            color=opt_color(data.get("color")),
             font_family=(str(data["font_family"]) if data.get("font_family") else None),
-            max_pt=max_pt,
+            max_pt=opt_int(data.get("max_pt")),
             # Ausente es «sin tocar», que no es lo mismo que ``false``:
             # ``false`` es «esta sección va en redonda pase lo que pase».
-            bold=_opt_bool(data.get("bold")),
-            italic=_opt_bool(data.get("italic")),
+            bold=opt_bool(data.get("bold")),
+            italic=opt_bool(data.get("italic")),
+            profile=(str(data["profile"]) if data.get("profile") else None),
         )
 
 

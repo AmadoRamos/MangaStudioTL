@@ -252,6 +252,19 @@ Tres reglas que valen para los cuatro pasos:
 - **Estilo** son dos conmutadores independientes, **Negrita** y
   **Cursiva**: se pueden combinar, y «normal» es tenerlos los dos
   apagados. Se guardan por sección, no por capítulo
+- **Perfil** es un atajo con nombre («Diálogo», «Grito»…) para fuente,
+  tamaño, color y estilo. La regla, de más fuerte a más débil, es
+  `lo que la sección puso a mano > su perfil > los valores del capítulo`,
+  así que asignar un perfil **no pisa** lo que esa sección ya había
+  elegido, y editar un perfil alcanza a las secciones que lo usan solo en
+  los campos que ellas no tocaron
+- La lista de perfiles empieza vacía: **Guardar como perfil…** crea uno
+  con lo que se ve en la sección seleccionada, y guardar con un nombre que
+  ya existe lo edita. **A toda la página** asigna el perfil de la sección
+  actual a las demás de esa página, sin tocar sus valores propios
+- El **↺** que aparece junto a *Fuente*, *Estilo*, *Tamaño máximo* o
+  *Color* devuelve ese campo al perfil. Solo aparece cuando la sección se
+  aparta de él: si no hay nada que deshacer, no hay botón
 - Negrita y cursiva **son ficheros de fuente, no un efecto**: PIL dibuja
   lo que hay en el fichero y no sintetiza nada. Si la familia elegida no
   tiene esa variante instalada, el riel lo dice — «*Tahoma* no tiene
@@ -308,7 +321,11 @@ Tres reglas que valen para los cuatro pasos:
     │   ├── pipeline_runner.py     OCR del capítulo: recorta, lee y escribe
     │   │                           en el store, todo en su propio hilo
     │   ├── recent_paths.py
+    │   ├── text_profiles.py       Perfiles de texto del usuario, en su
+    │   │                           propio JSON (no en los sidecars)
     │   ├── text_renderer.py       Auto-fit de fuente (búsqueda binaria)
+    │   │                           y resolve_box: el único sitio donde
+    │   │                           sección > perfil > capítulo se decide
     │   ├── translation_runner.py  Worker para Argos
     │   └── translator.py          Wrapper de Argos Translate
     └── views/
@@ -342,9 +359,12 @@ están borrados.
 python test_smoke.py
 ```
 
-Cubre las dos piezas de fontanería que no se ven al usar la app: el
-reparto de eventos de `BackgroundWorker` (incluido que `detach()`
-descarte lo que quede en cola) y el troceo de rutas del drag & drop.
+Cubre las piezas que no se ven al usar la app: el reparto de eventos de
+`BackgroundWorker` (incluido que `detach()` descarte lo que quede en
+cola), el troceo de rutas del drag & drop, la regla de precedencia de
+`resolve_box` —incluido que editar un perfil no pise lo que la sección
+eligió— y la ida y vuelta de `text_profiles.json`, con sus casos feos: un
+perfil sin nombre, un nombre duplicado y un archivo que no es JSON.
 Imprime `OK` o revienta con un `assert`. No hay framework de pruebas y
 no hace falta uno para esto.
 
@@ -382,7 +402,8 @@ Cada imagen genera un sidecar `<imagen>.marks.json` con:
       "color": [255, 0, 0],
       "font_family": "Arial",
       "max_pt": 24,
-      "bold": true
+      "bold": true,
+      "profile": "Grito"
     }
   }
 }
@@ -395,8 +416,14 @@ paso 4.
 La clave **solo aparece cuando alguien la puso**, igual que `padding`. Eso
 distingue «sin tocar» de «puesto a este valor a propósito»: `"bold": false`
 significa que esa sección va en redonda pase lo que pase, y la ausencia de
-la clave significa que nadie ha opinado. La diferencia es la que permitirá
-que un perfil de texto rellene lo que nadie tocó sin pisar lo que sí.
+la clave significa que nadie ha opinado. La diferencia es la que permite
+que el perfil de texto rellene lo que nadie tocó sin pisar lo que sí.
+
+`profile` guarda el **nombre** de un perfil, nunca una copia de sus
+valores: por eso editar un perfil alcanza a las secciones que lo usan. Un
+nombre que ya no exista se lee como «ninguno», no como error. Los perfiles
+en sí viven aparte, en `text_profiles.json` en la raíz del proyecto, porque
+son de quien rotula y no de un capítulo.
 
 `padding` es el margen de borrado de esa marca, en píxeles de la imagen, y
 también es opcional: **la clave solo aparece si el usuario la tocó**. Sin
@@ -650,6 +677,15 @@ más alta del capítulo, para que el encuadre valga para todas.
   familia se nota más que perder la inclinación— y `resolve_style` es el
   único sitio que decide qué se va a dibujar de verdad, así que la vista
   previa, el PNG exportado y el aviso del riel no pueden contradecirse
+- **Un solo resolvedor de estilo**: `text_renderer.resolve_box` es el
+  único sitio que decide qué caja se dibuja, aplicando
+  `sección > perfil > capítulo`. Lo llaman el exportador, la vista previa
+  del lienzo y el inspector, así que no pueden discrepar — que es lo que
+  pasaba cuando cada uno resolvía la regla por su cuenta y
+  `export_translations` dibujaba en negro puro lo que la vista previa
+  enseñaba en `#201E1D`. El `TextBox` que devuelve lleva el estilo **que
+  se va a dibujar**, ya pasado por `resolve_style`, y es lo que se anota
+  en el sidecar
 - **Cola de modelos Argos**: el paquete `argospm` (mencionado en algunas
   guías antiguas) ya no se distribuye; las versiones modernas de
   `argostranslate` (≥ 1.7) incluyen su propio gestor como

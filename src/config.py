@@ -164,4 +164,8 @@ TEXT_RENDER_FALLBACK_FAMILIES: tuple[str, ...] = (
 TEXT_RENDER_USER_MAX_PT_MIN: int = 10
 TEXT_RENDER_USER_MAX_PT_MAX: int = 96
 
+#: Los perfiles son de quien rotula, no del capítulo: un archivo en la
+#: raíz del proyecto, no un bloque dentro de cada sidecar.
+TEXT_PROFILES_FILE: str = "text_profiles.json"
+
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
