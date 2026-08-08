@@ -1,0 +1,26 @@
+# Entorno virtual
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Salida en tiempo de ejecución
+logs/
+.last_folder
+
+# Artefactos que genera la app junto a las páginas
+*.clean.png
+*.translated.png
+*.marks.json
+*.translation.json
+traducciones/
+
+# Páginas de ejemplo: son escaneos de terceros y pesan ~47 MB.
+# El código no las necesita para ejecutarse.
+example/
+
+# Editor / herramientas
+.claude/settings.local.json
+.vscode/
+.idea/

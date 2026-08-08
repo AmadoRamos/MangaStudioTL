@@ -1,0 +1,7 @@
+Pillow>=10.0.0
+tkinterdnd2>=0.4.2
+pytesseract>=0.3.10
+# torch / torchvision arrive with simple-lama-inpainting, which owns the
+# version constraint — pinning them here only risks contradicting it.
+simple-lama-inpainting>=0.1.0
+argostranslate>=1.9.0
