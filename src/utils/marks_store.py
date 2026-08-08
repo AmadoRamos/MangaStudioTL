@@ -513,7 +513,7 @@ class MarksStore:
             try:
                 loaded_ocr[idx] = OcrEntry.from_dict(raw_val)
             except Exception as exc:
-                log.warning("OCR invalido en %s: %s (%s)", path, raw, exc)
+                log.warning("OCR invalido en %s: %s (%s)", path, raw_val, exc)
         self._ocr = loaded_ocr
 
         raw_trans = data.get("translations", {})
@@ -526,7 +526,7 @@ class MarksStore:
             try:
                 loaded_trans[idx] = TranslationEntry.from_dict(raw_val)
             except Exception as exc:
-                log.warning("Traduccion invalida en %s: %s (%s)", path, raw, exc)
+                log.warning("Traduccion invalida en %s: %s (%s)", path, raw_val, exc)
         self._translations = loaded_trans
         self._reindex_ocr()
         self._reindex_translations()

@@ -1,3 +1,5 @@
+"""Punto de entrada: arranca el registro y abre la ventana."""
+
 from src.app import App
 from src.utils.logger import get_logger, log_file_path
 

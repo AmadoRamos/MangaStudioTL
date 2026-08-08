@@ -1,0 +1,70 @@
+# Pylint para una aplicación de escritorio en Tkinter.
+#
+# Lo que se apaga aquí no es «ruido que molesta»: es la diferencia entre
+# el estilo que pylint supone por defecto —una biblioteca de funciones— y
+# lo que esto es, una interfaz gráfica con vistas que construyen widgets
+# y manejadores que no pueden dejar que una excepción mate el bucle de
+# eventos. Cada bloque dice por qué.
+
+[MAIN]
+ignore-paths = ^\.venv/.*$
+# Los .pyi de Pillow no declaran los alias que crea en tiempo de
+# importación; sin esto, cada `Image.Resampling` sería un error.
+extension-pkg-allow-list = PIL
+
+[MESSAGES CONTROL]
+disable =
+    # Un manejador de Tk que deja escapar una excepción tumba el bucle de
+    # eventos y con él la ventana. Aquí capturar `Exception` y registrarla
+    # es la política, no un descuido: se ve en los `log.exception` que
+    # acompañan a casi todos.
+    broad-exception-caught,
+    # Las vistas montan sus widgets en `_build()`, que llama `__init__`.
+    # Declararlos antes solo serviría para escribirlos dos veces.
+    attribute-defined-outside-init,
+    # `src.views.theme` y `src.views.toolbar` se importan dentro de la
+    # función a propósito, para romper el ciclo que hay entre ellos.
+    import-outside-toplevel,
+    cyclic-import,
+    # El guion bajo marca «esto es de la aplicación, no de fuera». Las
+    # vistas y los tests lo cruzan porque están del mismo lado.
+    protected-access,
+    # Los dos lienzos —marcas y traducción— comparten forma a propósito;
+    # unificarlos es una decisión de diseño, no algo que decida un lint.
+    duplicate-code,
+    # Una fixture de pytest se recibe como argumento con el nombre de la
+    # fixture. Es el mecanismo, no una sombra accidental.
+    redefined-outer-name,
+    # En un test, `== []` dice «exactamente la lista vacía» y `not x`
+    # dice «algo falso»: `None` y `0` pasarían. La versión larga es la
+    # que comprueba de verdad.
+    use-implicit-booleaness-not-comparison
+
+[FORMAT]
+max-line-length = 100
+
+[BASIC]
+# Los ayudantes privados se explican por su nombre y por el módulo, que
+# sí lleva docstring. El requisito se mantiene en lo que se ve desde
+# fuera: módulos, clases y funciones públicas.
+no-docstring-rgx = ^_
+docstring-min-length = 3
+
+[DESIGN]
+# Una vista de Tkinter tiene un atributo por widget y un argumento por
+# opción. Los topes de una biblioteca no dicen nada aquí.
+max-attributes = 40
+max-args = 12
+max-positional-arguments = 8
+max-locals = 25
+max-public-methods = 40
+max-parents = 12
+max-branches = 20
+max-statements = 70
+max-nested-blocks = 6
+
+[VARIABLES]
+dummy-variables-rgx = ^_.*$
+# Los manejadores de Tk reciben el evento aunque no lo miren, y las
+# firmas de las llamadas de vuelta son fijas.
+ignored-argument-names = ^_|^event$|^args$|^kwargs$

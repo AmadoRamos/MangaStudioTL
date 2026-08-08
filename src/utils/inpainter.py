@@ -367,7 +367,7 @@ class Inpainter:
         if not self.is_available() or self._model is None:
             raise RuntimeError("LaMa no esta disponible")
         if image.size != mask.size:
-            mask = mask.resize(image.size, Image.LANCZOS)
+            mask = mask.resize(image.size, Image.Resampling.LANCZOS)
         if image.mode != "RGB":
             image = image.convert("RGB")
         return self._model(image, mask)

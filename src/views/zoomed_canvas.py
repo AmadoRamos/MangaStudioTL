@@ -132,13 +132,13 @@ def resample_for(eff: float, fast: bool = False) -> int:
     same way without being a :class:`ZoomedCanvas`.
     """
     if fast:
-        return Image.BILINEAR if eff < 1.0 else Image.NEAREST
+        return Image.Resampling.BILINEAR if eff < 1.0 else Image.Resampling.NEAREST
     if eff < 1.0:
-        return Image.LANCZOS
+        return Image.Resampling.LANCZOS
     if eff < 4.0:
-        return Image.BILINEAR
+        return Image.Resampling.BILINEAR
     # Past 4x the honest thing to show is the pixels themselves.
-    return Image.NEAREST
+    return Image.Resampling.NEAREST
 
 
 class ZoomedCanvas(tk.Frame):

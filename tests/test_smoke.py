@@ -1,9 +1,8 @@
 """Smoke checks for the pieces of plumbing with no other coverage.
 
-Run with: python test_smoke.py
+Run with: python -m pytest
 """
 
-import tempfile
 import time
 import tkinter as tk
 from pathlib import Path
@@ -639,28 +638,3 @@ def test_export_progress(root: tk.Tk) -> None:
     assert win._eta.cget("text") == ""
     assert win._page.cget("text") == "Terminando…"
     win.close()
-
-
-if __name__ == "__main__":
-    root = tk.Tk()
-    root.withdraw()
-    try:
-        test_emit_dispatches_by_name(root)
-        test_drop_data_splitting(root)
-        test_dialog_answers(root)
-        test_button_variants()
-        test_tool_icons(root)
-        test_marks_wheel()
-        test_wheel_dispatch()
-        test_detail_panel(root)
-        test_box_precedence()
-        test_profile_layer()
-        test_profile_names()
-        test_export_progress(root)
-        test_rect_geometry()
-        test_box_offset()
-        with tempfile.TemporaryDirectory() as tmp:
-            test_profiles_round_trip(Path(tmp) / "text_profiles.json")
-    finally:
-        root.destroy()
-    print("OK")

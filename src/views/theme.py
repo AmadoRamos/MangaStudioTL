@@ -311,7 +311,7 @@ def icon(
     cached = _ICONS.get(key)
     if cached is None:
         source = Image.open(ICON_DIR / f"{name}.png").convert("RGBA")
-        source = source.resize((size, size), Image.LANCZOS)
+        source = source.resize((size, size), Image.Resampling.LANCZOS)
         tinted = Image.new("RGBA", source.size, color)
         tinted.putalpha(source.getchannel("A"))
         cached = _ICONS[key] = ImageTk.PhotoImage(tinted)

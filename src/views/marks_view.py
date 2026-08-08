@@ -30,6 +30,7 @@ from PIL import Image, ImageTk
 from src.config import (
     ACCENT_200,
     CANVAS_BG,
+    CLEAN_CACHE_PAGES,
     COLOR_ACCENT,
     COLOR_BG,
     COLOR_DIVIDER,
@@ -109,6 +110,9 @@ class MarksView(tk.Frame):
         self._marks_visible: bool = True
         self._current_color: str = MARK_DEFAULT_COLOR
         self._clean_cache: dict[int, Image.Image] = {}
+        #: Solo las medidas, que caben todas: la cinta las necesita de
+        #: cada página para colocar el desplazamiento.
+        self._clean_sizes: dict[int, tuple[int, int]] = {}
         self._clean_available: dict[int, bool] = {}
         self._viewing_clean: bool = False
         self._running: bool = False
@@ -646,7 +650,7 @@ class MarksView(tk.Frame):
         """Pixel size of the page the inspector is editing."""
         if self._marks_canvas is not None and self._marks_canvas._image is not None:
             return self._marks_canvas._image.size
-        return self._strip_source(self._index).size
+        return self._strip_size(self._index)
 
     def _apply_mark_geometry(self, mark_id: int, mark: Mark) -> bool:
         """Write a geometry through whichever renderer is on screen."""
@@ -1054,7 +1058,7 @@ class MarksView(tk.Frame):
             if display is None:
                 display = self._load_clean_image(path)
                 if display is not None:
-                    self._clean_cache[self._index] = display
+                    self._remember_clean(self._index, display)
             if display is not None:
                 self._marks_canvas.set_image(display)
                 self._marks_canvas.set_marks_visible(False)
@@ -1207,7 +1211,11 @@ class MarksView(tk.Frame):
     # --- strip geometry -------------------------------------------------
 
     def _strip_source(self, idx: int) -> Image.Image:
-        """The bitmap page ``idx`` is drawn from — clean one if showing."""
+        """The bitmap page ``idx`` is drawn from — clean one if showing.
+
+        Solo para lo que se va a dibujar. Para saber *cuánto mide* una
+        página está :meth:`_strip_size`, que no la descodifica.
+        """
         path, img = self._items[idx]
         if not (self._viewing_clean and self._clean_available.get(idx, False)):
             return img
@@ -1215,14 +1223,62 @@ class MarksView(tk.Frame):
         if cached is None:
             cached = self._load_clean_image(path)
             if cached is not None:
-                self._clean_cache[idx] = cached
+                self._remember_clean(idx, cached)
         return cached if cached is not None else img
+
+    def _remember_clean(self, idx: int, image: Image.Image) -> None:
+        """Guarda la limpia de ``idx`` sin quedarse el capítulo entero.
+
+        Una página de webcomic ronda los 30 MB descodificada, así que
+        guardarlas todas se come varios GB en un capítulo corriente. Se
+        conservan unas pocas y se suelta la más lejana a la que se está
+        mirando, que es la que más tardará en volver a hacer falta.
+        """
+        self._clean_cache[idx] = image
+        while len(self._clean_cache) > CLEAN_CACHE_PAGES:
+            furthest = max(
+                self._clean_cache, key=lambda i: abs(i - self._index),
+            )
+            del self._clean_cache[furthest]
+
+    def _strip_size(self, idx: int) -> tuple[int, int]:
+        """Lo que mide la página ``idx``, sin descodificarla.
+
+        La cinta necesita el tamaño de *todas* las páginas para colocar
+        el desplazamiento, pero los píxeles solo de las que se ven. Pedir
+        aquí la imagen entera cargaba el capítulo completo en memoria en
+        cuanto se encendía «ver limpia».
+        """
+        path, img = self._items[idx]
+        if not (self._viewing_clean and self._clean_available.get(idx, False)):
+            return img.size
+        cached = self._clean_cache.get(idx)
+        if cached is not None:
+            return cached.size
+        size = self._clean_sizes.get(idx)
+        if size is None:
+            size = self._read_clean_size(path) or img.size
+            self._clean_sizes[idx] = size
+        return size
+
+    @staticmethod
+    def _read_clean_size(path: Path) -> tuple[int, int] | None:
+        """El tamaño de la limpia leyendo la cabecera, no los píxeles."""
+        cp = find_clean(path)
+        if cp is None:
+            return None
+        try:
+            with Image.open(cp) as img:
+                return img.size
+        except Exception as exc:
+            log.warning("No se pudo leer el tamaño de %s: %s", cp, exc)
+            return None
 
     def _strip_max_size(self) -> tuple[int, int]:
         """Widest and tallest page, in real pixels."""
         max_w = max_h = 1
         for idx in range(len(self._items)):
-            w, h = self._strip_source(idx).size
+            w, h = self._strip_size(idx)
             max_w = max(max_w, w)
             max_h = max(max_h, h)
         return max_w, max_h
@@ -1261,7 +1317,7 @@ class MarksView(tk.Frame):
         layout: list[tuple[float, float, int, int]] = []
         y = 0.0
         for idx in range(len(self._items)):
-            iw, ih = self._strip_source(idx).size
+            iw, ih = self._strip_size(idx)
             sw = max(1, int(round(iw * scale)))
             sh = max(1, int(round(ih * scale)))
             layout.append(((content_w - sw) / 2.0, y, sw, sh))
@@ -1499,7 +1555,7 @@ class MarksView(tk.Frame):
         if not 0 <= img_idx < len(self._strip_layout):
             return None
         x0, y0, _, _ = self._strip_layout[img_idx]
-        iw, ih = self._strip_source(img_idx).size
+        iw, ih = self._strip_size(img_idx)
         ix = int(round((sx - x0) / self._strip_scale))
         iy = int(round((sy - y0) / self._strip_scale))
         return img_idx, max(0, min(ix, iw)), max(0, min(iy, ih))
@@ -1532,7 +1588,10 @@ class MarksView(tk.Frame):
         if canvas.can_pan_y():
             canvas.pan_by(0, WHEEL_PAN_STEP if up else -WHEEL_PAN_STEP)
             return
-        self._on_prev() if up else self._on_next()
+        if up:
+            self._on_prev()
+        else:
+            self._on_next()
 
     def _hit_test_image(self, strip_y: float) -> int | None:
         for idx, (_, y0, _, sh) in enumerate(self._strip_layout):
@@ -2055,6 +2114,9 @@ class MarksView(tk.Frame):
         if not success:
             return
         self._clean_cache.pop(image_index, None)
+        # La limpia nueva puede no medir lo mismo que la que había, y la
+        # cinta coloca el desplazamiento con esa medida.
+        self._clean_sizes.pop(image_index, None)
         self._clean_available[image_index] = True
         self._update_toolbar()
         self._update_button_states()

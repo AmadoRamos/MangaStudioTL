@@ -254,7 +254,7 @@ class OcrEngine:
         if img.size[1] < OCR_MIN_CROP_HEIGHT:
             new_w = max(1, int(img.size[0] * OCR_SCALE_FACTOR))
             new_h = max(1, int(img.size[1] * OCR_SCALE_FACTOR))
-            img = img.resize((new_w, new_h), Image.LANCZOS)
+            img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
         return img
 
     def _first_available(self) -> str:

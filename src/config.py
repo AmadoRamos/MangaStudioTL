@@ -95,6 +95,12 @@ OCR_TEMP_PREFIX: str = "visor_ocr_"
 OCR_TESSERACT_CMD: str | None = None
 
 CLEAN_SUFFIX: str = ".clean.png"
+#: Cuántas versiones limpias guardan descodificadas los pasos 2 y 4. Una
+#: página de webcomic ronda los 30 MB en memoria y los originales del
+#: capítulo ya están cargados aparte, así que guardarlas todas duplicaba
+#: el capítulo en RAM. Unas pocas cubren la página mirada y sus vecinas;
+#: subirlo cambia memoria por no releer el PNG al desplazarse.
+CLEAN_CACHE_PAGES: int = 4
 INPAINT_PADDING_PX: int = 12
 INPAINT_DEFAULT_PADDING: int = 64
 INPAINT_MIN_PADDING: int = 16

@@ -21,6 +21,7 @@ from tkinter import colorchooser
 from PIL import Image
 
 from src.config import (
+    CLEAN_CACHE_PAGES,
     COLOR_ACCENT,
     COLOR_BG,
     COLOR_DIVIDER,
@@ -1066,7 +1067,7 @@ class RenderView(tk.Frame):
             if cached is None:
                 cached = self._load_clean_image(path)
                 if cached is not None:
-                    self._clean_cache[self._index] = cached
+                    self._remember_clean(self._index, cached)
             if cached is not None:
                 display = cached
         self._canvas.set_image(display)
@@ -1110,6 +1111,20 @@ class RenderView(tk.Frame):
         self._status.set(
             f"Página {self._index + 1} limpia y lista", "success",
         )
+
+    def _remember_clean(self, idx: int, image: Image.Image) -> None:
+        """Guarda la limpia de ``idx`` sin acumular el capítulo entero.
+
+        Recorrer las páginas iba dejando cada versión limpia en memoria,
+        y una de webcomic ronda los 30 MB. Se suelta la más lejana a la
+        que se está mirando, que es la que más tardará en volver.
+        """
+        self._clean_cache[idx] = image
+        while len(self._clean_cache) > CLEAN_CACHE_PAGES:
+            furthest = max(
+                self._clean_cache, key=lambda i: abs(i - self._index),
+            )
+            del self._clean_cache[furthest]
 
     def _load_clean_image(self, path: Path) -> Image.Image | None:
         cp = find_clean(path)

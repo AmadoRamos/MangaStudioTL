@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Iterable
 
@@ -280,10 +281,17 @@ def list_available_families() -> list[str]:
     return sorted(seen)
 
 
+@lru_cache(maxsize=256)
 def _resolve_font_path(
     family: str, style: str = STYLE_REGULAR,
 ) -> str | None:
-    """Return the first resolvable TTF path for ``family`` or ``None``."""
+    """Return the first resolvable TTF path for ``family`` or ``None``.
+
+    Cacheado porque cada pregunta recorre los directorios de fuentes con
+    un ``is_file`` por candidato, y se pregunta una vez por sección en
+    cada repintado del paso 4. El precio es no ver una fuente instalada
+    con la aplicación abierta, que se arregla reiniciándola.
+    """
     for path in _candidate_font_paths(family, style):
         try:
             if path.is_file():
@@ -339,6 +347,7 @@ def resolve_style(
 
 # --- Font loading --------------------------------------------------------
 
+@lru_cache(maxsize=256)
 def _load_font(
     size: int,
     family: str | None = None,
@@ -346,6 +355,13 @@ def _load_font(
     bold: bool = False,
     italic: bool = False,
 ) -> ImageFont.FreeTypeFont:
+    """La fuente pedida, leída del disco una sola vez.
+
+    ``fit_text`` prueba siete cuerpos por sección y ``_draw_box`` vuelve
+    a pedir el que ganó, así que sin caché se reabre y se reanaliza el
+    mismo TTF ocho veces por globo. Las fuentes solo se miden y se
+    dibujan, nunca se modifican, así que compartir el objeto es seguro.
+    """
     for path, _style in _iter_font_files(family, bold, italic):
         try:
             return ImageFont.truetype(path, size=size)
@@ -604,10 +620,21 @@ def _hard_break(
     return chunks
 
 
+@lru_cache(maxsize=8192)
 def _text_width(text: str, font: ImageFont.FreeTypeFont) -> int:
+    """Lo que mide una palabra, medido una sola vez.
+
+    Es el 80 % del coste de dibujar una página: la búsqueda binaria del
+    cuerpo vuelve a medir cada palabra con cada cuerpo que prueba, y el
+    paso 4 repinta entero cada vez que se arrastra un deslizador.
+
+    La clave incluye la fuente, que se compara por identidad — por eso
+    ``_load_font`` está cacheada también: si devolviera un objeto nuevo
+    cada vez, esta caché no acertaría nunca.
+    """
     try:
-        l, t, r, b = font.getbbox(text)
-        return max(0, r - l)
+        left, _top, right, _bottom = font.getbbox(text)
+        return max(0, right - left)
     except Exception:
         try:
             return int(font.getlength(text))
@@ -651,9 +678,9 @@ def _draw_box(draw: ImageDraw.ImageDraw, box: TextBox) -> None:
     pad = max(0, int(box.padding_px))
     for line in fit.lines:
         try:
-            l, t, r, b = font.getbbox(line)
-            line_w = max(0, r - l)
-            line_x_offset = -l
+            left, _top, right, _bottom = font.getbbox(line)
+            line_w = max(0, right - left)
+            line_x_offset = -left
         except Exception:
             line_w = _text_width(line, font)
             line_x_offset = 0

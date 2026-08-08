@@ -77,6 +77,7 @@ class OcrReviewView(tk.Frame):
         self._progress_label: tk.Label | None = None
         self._progress_meter: theme.Meter | None = None
         self._filter_bar: theme.SegmentedBar | None = None
+        self._auto_after_id: str | None = None
 
         self._build_ui()
         self._build_sidebar_sections()
@@ -89,7 +90,11 @@ class OcrReviewView(tk.Frame):
         self._table.set_stores(self._stores)
         self._refresh_counts()
         self._set_context()
-        self.after(200, self._auto_translate_if_pending)
+        # Se guarda el identificador porque hay que poder cancelarlo: si
+        # el usuario vuelve al paso 2 antes de que salte, el aviso llega
+        # a una vista ya destruida y arranca una traducción cuyo runner
+        # nadie va a escuchar.
+        self._auto_after_id = self.after(200, self._auto_translate_if_pending)
 
     # ------------------------------------------------------------------
     # Content
@@ -600,6 +605,7 @@ class OcrReviewView(tk.Frame):
         return items
 
     def _auto_translate_if_pending(self) -> None:
+        self._auto_after_id = None
         if not self._translator.is_available():
             return
         pending = self._pending_items(only_missing=True)
@@ -712,6 +718,12 @@ class OcrReviewView(tk.Frame):
             return 0
 
     def destroy(self) -> None:  # type: ignore[override]
+        if self._auto_after_id is not None:
+            try:
+                self.after_cancel(self._auto_after_id)
+            except Exception:
+                pass
+            self._auto_after_id = None
         try:
             self._translation_runner.detach()
         except Exception:

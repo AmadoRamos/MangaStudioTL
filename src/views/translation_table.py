@@ -176,7 +176,7 @@ class TranslationTable(tk.Frame):
         """Trae al panel la fila *key*, guardando antes lo que hubiera."""
         self._commit_detail()
         self._detail_key = key
-        if key is None or not (0 <= key[0] < len(self._stores)):
+        if key is None or not 0 <= key[0] < len(self._stores):
             self._detail_key = None
             self._detail_loaded = ("", "")
             self._detail_kicker.configure(text="SIN SELECCIÓN")
