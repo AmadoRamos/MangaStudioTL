@@ -7,52 +7,30 @@ Cuando algo se termine, se mueve a *Hecho* al final con una línea de qué
 cambió. Las convenciones de estilo visual están en [DESIGN.md](DESIGN.md); el
 funcionamiento del flujo, en [README.md](README.md).
 
----
-
-## 1 · Paso 3 (Traducir) · el texto largo se corta en vez de seguir abajo
-
-**Qué.** Cuando una traducción no cabe en el ancho de la columna, el final
-desaparece. Debería continuar en otra línea.
-
-**Estado actual.** Hay dos cortes, uno encima del otro:
-
-- `_truncate` (`translation_table.py:386`) recorta a `PREVIEW_LEN = 120`
-  caracteres y añade «…». Ese es explícito y se quita cuando se quiera.
-- Debajo hay otro que no se quita: **`ttk.Treeview` no sabe partir líneas.**
-  Cada celda es un renglón, el alto de fila lo fija el estilo
-  (`theme.py:117`, `rowheight=30`) y un `\n` dentro del valor no se dibuja.
-  Ensanchar la columna solo mueve el problema.
-- Relacionado: el editor en línea es un `tk.Entry` de un solo renglón
-  (`translation_table.py:282`), así que al corregir un texto largo tampoco se
-  ve entero.
-
-**Dónde.**
-
-- `src/views/translation_table.py` — casi todo el trabajo.
-- `src/views/theme.py:117` — `rowheight`, si el alto pasa a ser variable.
-
-**A decidir.**
-
-- La decisión de fondo, porque el Treeview no da más de sí:
-  - **(a)** Sustituir la tabla por una lista hecha con marcos y un `tk.Text`
-    por fila. Da salto de línea y edición de varios renglones, pero es rehacer
-    el widget entero con sus filtros, sus etiquetas de color y su edición en
-    línea.
-  - **(b)** Dejar el Treeview y enseñar el texto completo en otro sitio: un
-    panel de detalle bajo la tabla con la sección seleccionada.
-    *Propuesta: empezar por (b)* —es barato y cubre el leer— y dejar (a) para
-    si lo que de verdad hace falta es editar textos largos ahí mismo.
-- Si el texto pasa a partirse, ¿desaparece `PREVIEW_LEN` o se queda un tope de
-  dos o tres renglones con «…» al final? Sin tope, una sección larga empuja al
-  resto del capítulo fuera de la pantalla.
-- El editor debería ser de varios renglones en cualquiera de los dos caminos.
-  Antes de eso hay que mirar qué pasa con un `\n` escrito a mano: el OCR se
-  normaliza a un renglón (`to_single_line`) porque Argos parte por ahí, y el
-  render vuelve a repartir el texto por su cuenta.
+**Ahora mismo no hay ninguno.** Lo último cerrado está el primero de la lista
+de abajo.
 
 ---
 
 ## Hecho
+
+- **Paso 3 · el texto largo** — la celda se cortaba y no había dónde ver el
+  resto. El corte de abajo no se quita: un `ttk.Treeview` no parte líneas
+  —cada celda es un renglón, el alto lo fija el estilo y un `\n` dentro del
+  valor ni se dibuja—, así que ensanchar la columna solo movía el problema.
+  La fila se queda entonces en vista previa a propósito, con su recorte a
+  `PREVIEW_LEN`, y el texto entero pasa a un **panel bajo la tabla** con la
+  sección seleccionada. Se edita además de leerse, porque un texto que no
+  cabía en la celda tampoco cabe en el `Entry` de un renglón que abre el
+  doble clic; son dos áreas de varios renglones que guardan con `Ctrl+Enter`
+  —`Enter` mete un salto— o al salir del área. Guardar escribe contra la fila
+  que el panel tenía **cargada** y no contra la seleccionada, que al cambiar
+  de fila no son la misma; y `_detail_loaded` se actualiza *antes* de avisar
+  a la vista, porque el aviso repinta la tabla y la repintada vuelve a pasar
+  por el guardado. En la traducción un `\n` escrito a mano se respeta y llega
+  al render (`_wrap` parte por él antes de repartir); en el OCR no, que se
+  sigue normalizando a un renglón por lo de Argos. No hizo falta tocar
+  `rowheight` ni cambiar el widget de la tabla.
 
 - **Un solo dueño de la rueda** — `bind_all` escribe en la etiqueta `all` de
   Tk, que **solo guarda un script por secuencia**, así que dos dueños no la

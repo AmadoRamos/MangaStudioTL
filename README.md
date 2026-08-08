@@ -228,6 +228,15 @@ Tres reglas que valen para los cuatro pasos:
   filtros que tienen al lado, para que se lean como botones
 - **Edición en la celda**: doble clic, `Enter` guarda, `Tab` pasa a la
   siguiente celda, `Esc` cancela, `Supr` borra la traducción
+- **Panel de detalle bajo la tabla** con el texto **entero** de la fila
+  seleccionada, OCR y traducción, en áreas de varios renglones que
+  también se editan (`Ctrl+Enter` guarda; salir del área también). La
+  celda de la tabla es una vista previa recortada a 120 caracteres a
+  propósito: un `ttk.Treeview` no parte líneas —cada celda es un renglón
+  y un `\n` dentro del valor ni se dibuja—, así que ensanchar la columna
+  solo movería el problema. En la traducción **un salto de línea escrito
+  a mano se respeta** y llega al render; en el OCR no, porque ahí se
+  normaliza a un renglón para que Argos no traduzca cada trozo suelto
 - Al entrar, si hay OCR pendiente de traducir, **auto-traduce** lo que
   falte
 - **⌕ Extraer texto** en la barra superior vuelve al paso 2 y lanza allí
@@ -553,6 +562,7 @@ mientras escribes en un campo del inspector.
 | `Tab` | Guardar y pasar a la siguiente celda |
 | `Esc` | Cancelar la edición |
 | `Supr` | Borrar la traducción de la fila |
+| `Ctrl+Enter` | Guardar, en el panel de detalle (ahí `Enter` mete un renglón) |
 
 Zoom:
 

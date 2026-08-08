@@ -267,6 +267,79 @@ def test_wheel_dispatch() -> None:
     assert rail._wheel_client is not None
 
 
+def test_detail_panel(root: tk.Tk) -> None:
+    """El panel del paso 3 guarda contra la fila que tenía cargada."""
+    from src.views import theme
+    from src.views.translation_table import PREVIEW_LEN, TranslationTable
+
+    theme.init(root)
+    largo = "palabra " * 40
+    assert len(largo) > PREVIEW_LEN
+
+    class Ocr:
+        def __init__(self, text: str) -> None:
+            self.text = text
+            self.confidence = 90
+
+    class Trans:
+        def __init__(self, text: str) -> None:
+            self.text = text
+            self.edited = False
+
+    class Store:
+        def __init__(self, rows: list) -> None:
+            self.rows = rows
+
+        def __len__(self) -> int:
+            return len(self.rows)
+
+        def get_ocr(self, i: int):
+            return self.rows[i][0]
+
+        def get_translation(self, i: int):
+            return self.rows[i][1]
+
+    escrituras: list[tuple] = []
+    table = TranslationTable(
+        root,
+        on_translate_row=lambda *a: None,
+        on_translation_edited=lambda *a: (
+            escrituras.append(a), table.refresh(),
+        ),
+        on_translation_deleted=lambda *a: None,
+    )
+    table.set_stores([Store([
+        (Ocr("uno"), Trans(largo)),
+        (Ocr("dos"), Trans("corto")),
+    ])])
+
+    # La fila es una vista previa recortada; el texto entero está abajo.
+    fila = table._tree.item("0:0", "values")
+    assert len(fila[2]) < len(largo) and fila[2].endswith("…"), fila[2]
+    table._load_detail((0, 0))
+    assert table._area_text(table._detail_trans) == largo
+
+    # Se teclea y se cambia de fila: lo escrito va a la fila que estaba
+    # cargada, no a la recién seleccionada. Y el aviso repinta la tabla,
+    # que vuelve a pasar por aquí — una sola escritura, no dos.
+    table._detail_trans.insert(tk.END, " añadido")
+    table._load_detail((0, 1))
+    assert len(escrituras) == 1, escrituras
+    assert escrituras[0][:2] == (0, 0), escrituras[0]
+    assert escrituras[0][2].endswith("añadido")
+
+    # Sin cambios no se guarda nada.
+    table._commit_detail()
+    assert len(escrituras) == 1, escrituras
+
+    # Sin selección el panel se apaga.
+    table._load_detail(None)
+    assert str(table._detail_trans.cget("state")) == "disabled"
+    assert "SIN SELECCIÓN" in str(table._detail_kicker.cget("text"))
+
+    table.destroy()
+
+
 def test_box_precedence() -> None:
     """The section beats the chapter, and ``None`` means «sin tocar»."""
     mark = Mark(x=10, y=20, w=200, h=80, color="#ec3013")
@@ -439,6 +512,7 @@ if __name__ == "__main__":
         test_button_variants()
         test_marks_wheel()
         test_wheel_dispatch()
+        test_detail_panel(root)
         test_box_precedence()
         test_profile_layer()
         test_rect_geometry()

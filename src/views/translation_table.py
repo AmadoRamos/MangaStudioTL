@@ -19,6 +19,7 @@ from src.config import (
     ACCENT_100,
     ACCENT_800,
     COLOR_BG,
+    COLOR_TEXT,
     NEUTRAL_100,
     NEUTRAL_500,
 )
@@ -67,6 +68,9 @@ class TranslationTable(tk.Frame):
         self._editor: tk.Entry | None = None
         self._editor_key: RowKey | None = None
         self._editor_column: str | None = None
+        self._detail_key: RowKey | None = None
+        self._detail_loaded: tuple[str, str] = ("", "")
+        self._refreshing = False
 
         self._build_ui()
 
@@ -75,8 +79,12 @@ class TranslationTable(tk.Frame):
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
+        # Abajo primero: así el panel conserva su alto cuando la ventana
+        # encoge y lo que se queda sin sitio es la tabla, que tiene
+        # barra.
+        self._build_detail()
         holder = tk.Frame(self, bg=COLOR_BG)
-        holder.pack(fill=tk.BOTH, expand=True)
+        holder.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
         self._tree = ttk.Treeview(
             holder,
@@ -110,6 +118,110 @@ class TranslationTable(tk.Frame):
         self._tree.bind("<Double-1>", self._on_double_click)
         self._tree.bind("<Return>", lambda _e: self._edit_selected("trans"))
         self._tree.bind("<Delete>", lambda _e: self._delete_selected())
+
+    # ------------------------------------------------------------------
+    # Detail panel
+    # ------------------------------------------------------------------
+
+    def _build_detail(self) -> None:
+        """El texto entero de la fila seleccionada, y donde se corrige.
+
+        Un `ttk.Treeview` no parte líneas: cada celda es un renglón, el
+        alto lo fija el estilo y un ``\\n`` dentro del valor ni se dibuja,
+        así que ensanchar la columna solo mueve el problema. La fila se
+        queda entonces en vista previa —recortada a `PREVIEW_LEN`— y el
+        texto completo vive aquí abajo. Se edita, y no solo se lee,
+        porque el texto que no cabe tampoco cabía en el `Entry` de un
+        renglón que abre la celda.
+        """
+        outer = tk.Frame(self, bg=COLOR_BG)
+        outer.pack(side=tk.BOTTOM, fill=tk.X)
+        theme.rule(outer, thickness=2, color=COLOR_TEXT).pack(fill=tk.X)
+        panel = tk.Frame(outer, bg=COLOR_BG, padx=14, pady=10)
+        panel.pack(fill=tk.X)
+
+        head = tk.Frame(panel, bg=COLOR_BG)
+        head.pack(fill=tk.X)
+        self._detail_kicker = theme.kicker(head, "Sin selección")
+        self._detail_kicker.pack(side=tk.LEFT)
+        theme.body(
+            head, "Ctrl+Enter guarda", size=8, fg=NEUTRAL_500,
+        ).pack(side=tk.RIGHT)
+
+        self._detail_ocr = self._detail_area(panel, "OCR", height=2)
+        self._detail_trans = self._detail_area(panel, "Traducción", height=3)
+        self._load_detail(None)
+
+    def _detail_area(self, parent: tk.Misc, label: str, *, height: int) -> tk.Text:
+        theme.field_label(parent, label).pack(fill=tk.X, pady=(8, 3))
+        area = theme.text_area(parent, height=height, bg=COLOR_BG)
+        area.pack(fill=tk.X)
+        # Enter mete un renglón, que es de lo que va el panel, así que
+        # guardar es Ctrl+Enter. Salir del área también guarda, igual que
+        # en el editor de la celda.
+        area.bind("<Control-Return>", lambda _e: self._commit_detail() or "break")
+        area.bind("<FocusOut>", lambda _e: self._commit_detail())
+        return area
+
+    def _fill_area(self, area: tk.Text, text: str, *, enabled: bool) -> None:
+        area.configure(state=tk.NORMAL)
+        area.delete("1.0", tk.END)
+        area.insert("1.0", text)
+        area.configure(state=tk.NORMAL if enabled else tk.DISABLED)
+
+    def _area_text(self, area: tk.Text) -> str:
+        return area.get("1.0", "end-1c")
+
+    def _load_detail(self, key: RowKey | None) -> None:
+        """Trae al panel la fila *key*, guardando antes lo que hubiera."""
+        self._commit_detail()
+        self._detail_key = key
+        if key is None or not (0 <= key[0] < len(self._stores)):
+            self._detail_key = None
+            self._detail_loaded = ("", "")
+            self._detail_kicker.configure(text="SIN SELECCIÓN")
+            self._fill_area(self._detail_ocr, "", enabled=False)
+            self._fill_area(self._detail_trans, "", enabled=False)
+            return
+        page, mark_id = key
+        store = self._stores[page]
+        ocr = store.get_ocr(mark_id)
+        trans = store.get_translation(mark_id)
+        self._detail_loaded = (
+            ocr.text if ocr is not None else "",
+            trans.text if trans is not None else "",
+        )
+        self._detail_kicker.configure(
+            text=f"SECCIÓN {page + 1:02d}·{mark_id + 1:02d}",
+        )
+        self._fill_area(self._detail_ocr, self._detail_loaded[0], enabled=True)
+        self._fill_area(self._detail_trans, self._detail_loaded[1], enabled=True)
+
+    def _commit_detail(self) -> None:
+        """Guarda lo cambiado, contra la fila que el panel tenía cargada.
+
+        Contra ``_detail_key`` y no contra la selección de la tabla: al
+        cambiar de fila esto corre **antes** de cargar la nueva, y
+        escribir en la fila recién seleccionada lo que se tecleó en la
+        anterior es justo el error que hay que evitar.
+        """
+        if self._detail_key is None:
+            return
+        page, mark_id = self._detail_key
+        ocr_text = self._area_text(self._detail_ocr)
+        trans_text = self._area_text(self._detail_trans)
+        was_ocr, was_trans = self._detail_loaded
+        # Antes de avisar y no después: el aviso repinta la tabla, que
+        # vuelve por aquí, y sin esto la segunda pasada volvería a
+        # guardar lo mismo.
+        self._detail_loaded = (ocr_text, trans_text)
+        try:
+            if ocr_text != was_ocr and self._on_ocr_edited is not None:
+                self._on_ocr_edited(page, mark_id, ocr_text.strip())
+            if trans_text != was_trans:
+                self._on_translation_edited(page, mark_id, trans_text.strip())
+        except Exception as exc:
+            log.exception("Error guardando el detalle: %s", exc)
 
     # ------------------------------------------------------------------
     # Data
@@ -149,6 +261,14 @@ class TranslationTable(tk.Frame):
 
     def refresh(self, highlight: RowKey | None = None) -> None:
         self._cancel_editor()
+        self._refreshing = True
+        try:
+            self._rebuild_rows(highlight)
+        finally:
+            self._refreshing = False
+        self._load_detail(self.selected_key())
+
+    def _rebuild_rows(self, highlight: RowKey | None) -> None:
         for iid in self._tree.get_children():
             self._tree.delete(iid)
         visible = 0
@@ -232,7 +352,12 @@ class TranslationTable(tk.Frame):
     # ------------------------------------------------------------------
 
     def _on_tree_select(self, _event: object) -> None:
+        if self._refreshing:
+            # Borrar las filas vacía la selección y dispara esto en medio
+            # de la reconstrucción. `refresh` carga el panel al terminar.
+            return
         key = self.selected_key()
+        self._load_detail(key)
         if key is not None and self._on_select is not None:
             try:
                 self._on_select(*key)
