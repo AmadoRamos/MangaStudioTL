@@ -1,7 +1,8 @@
 """Persists the folders the user has opened, most recent first.
 
-Stored one path per line in a small text file at the project root; the
-first line is the folder opened last. Folders that no longer exist on
+Stored one path per line in a small text file under
+:data:`~src.config.USER_DATA_DIR`; the first line is the folder opened
+last. Folders that no longer exist on
 disk are skipped when read, so a chapter that was moved or deleted
 cannot keep a dead row in the rail.
 
@@ -14,12 +15,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from src.config import PROJECT_ROOT, RECENT_PATHS_FILE
+from src.config import USER_DATA_DIR, RECENT_PATHS_FILE
 from src.utils.logger import get_logger
 
 log = get_logger("recent_paths")
 
-_PATH_FILE: Path = PROJECT_ROOT / RECENT_PATHS_FILE
+_PATH_FILE: Path = USER_DATA_DIR / RECENT_PATHS_FILE
 
 #: How many folders to remember. The rail shows a handful; the rest are
 #: kept so a chapter you come back to next week is still one click away.

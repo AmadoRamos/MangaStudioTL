@@ -9,19 +9,25 @@ the full image and gives LaMa enough context to fill in correctly.
 from __future__ import annotations
 
 import hashlib
+import os
 import threading
 from pathlib import Path
 from typing import Iterable
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 
 from src.config import (
     CLEAN_SUFFIX,
     SUPPORTED_EXTENSIONS,
     INPAINT_CLUSTER_GAP,
     INPAINT_DEFAULT_PADDING,
+    INPAINT_MASK_DILATE_PX,
+    INPAINT_MODEL,
+    INPAINT_MODELS,
     INPAINT_PADDING_PX,
+    MODELS_DIR,
 )
+from src.utils import text_mask
 from src.utils.logger import get_logger
 from src.utils.marks_store import Mark
 
@@ -37,6 +43,35 @@ except Exception as exc:
     _LAMA_AVAILABLE = False
     _IMPORT_ERROR = str(exc)
     log.warning("simple-lama-inpainting no disponible: %s", exc)
+
+
+def resolve_model(name: str = INPAINT_MODEL) -> Path | None:
+    """Archivo TorchScript del modelo ``name``, o None para el de siempre.
+
+    Un nombre desconocido, o uno cuyo archivo todavia no se ha generado
+    con ``tools/trace_manga_lama.py``, cae al big-lama por defecto con un
+    aviso en el log. Preferimos limpiar peor que no limpiar: quien pone
+    la variable esta probando algo, y quedarse sin paso 2 por un archivo
+    que falta es mas caro que perder la mejora.
+    """
+    if not name:
+        return None
+    filename = INPAINT_MODELS.get(name)
+    if filename is None:
+        log.warning(
+            "INPAINT_MODEL=%r no existe; se usara big-lama. Opciones: %s",
+            name, ", ".join(sorted(INPAINT_MODELS)) or "(ninguna)",
+        )
+        return None
+    path = MODELS_DIR / filename
+    if not path.exists():
+        log.warning(
+            "Modelo %r no encontrado en %s; se usara big-lama. "
+            "Generalo con: python tools/trace_manga_lama.py",
+            name, path,
+        )
+        return None
+    return path
 
 
 def clean_path(image_path: Path) -> Path:
@@ -78,14 +113,23 @@ def marks_signature(
     A per-mark padding only joins the fingerprint when it was actually
     set. Folding the resolved default in instead would change every
     signature ever written and send whole chapters back through LaMa for
-    a value that did not move.
+    a value that did not move. El modelo de la sección entra con la
+    misma regla y por el mismo motivo.
+
+    El ``m3`` y la dilatación son la excepción, y a propósito: ahí lo que
+    cambia no es un valor que nadie movió, es qué tapa la máscara. Un
+    ``.clean`` escrito con la máscara rectangular ya no es el que sale
+    hoy de las mismas cajas, así que tiene que caducar. Se paga una
+    pasada de LaMa por capítulo, una sola vez. El número es la versión
+    del algoritmo de ``text_mask``: si vuelve a cambiar, se sube.
     """
     boxes = ";".join(
         f"{m.x},{m.y},{m.w},{m.h}"
         + ("" if m.padding is None else f",p{m.padding}")
+        + ("" if not m.model else f",m{m.model}")
         for m in marks
     )
-    raw = f"{padding}|{cluster_gap}|{boxes}"
+    raw = f"{padding}|{cluster_gap}|m3d{INPAINT_MASK_DILATE_PX}|{boxes}"
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
@@ -213,11 +257,30 @@ def cluster_marks(
     return clusters
 
 
+def group_by_model(marks: list[Mark]) -> list[tuple[str, list[Mark]]]:
+    """Las marcas repartidas por el modelo que las rellena.
+
+    Dos secciones vecinas con modelos distintos no pueden compartir
+    cluster: un cluster es una llamada a una red. Ordenado para que el
+    modelo por defecto —cadena vacía— vaya siempre primero, y para que
+    la misma página dé el mismo resultado dos veces seguidas.
+    """
+    groups: dict[str, list[Mark]] = {}
+    for m in marks:
+        groups.setdefault(m.model, []).append(m)
+    return sorted(groups.items())
+
+
 class Inpainter:
     """Lazy-loading LaMa wrapper for image cleanup."""
 
     def __init__(self) -> None:
-        self._model = None
+        # Un modelo cargado por nombre resuelto: una página puede mezclar
+        # secciones con modelos distintos y no queremos recargar 200 MB en
+        # cada cluster.
+        # ponytail: sin desalojo. Son dos modelos como mucho —los que hay
+        # en INPAINT_MODELS— y el que no se use nunca no se carga.
+        self._models: dict[str, object] = {}
         self._lock = threading.Lock()
         self._available: bool | None = None
         self._load_error: str | None = None
@@ -248,17 +311,36 @@ class Inpainter:
     def load_error(self) -> str | None:
         return self._load_error
 
-    def _ensure_model(self) -> None:
-        if self._model is not None:
-            return
+    def _ensure_model(self, name: str = INPAINT_MODEL):
+        """El modelo de ``name``, cargándolo la primera vez que se pide.
+
+        La clave del cache es la ruta ya resuelta y no el nombre pedido:
+        así un nombre que no existe y el modelo por defecto comparten la
+        misma instancia en vez de cargar dos veces lo mismo.
+        """
+        alt = resolve_model(name)
+        key = str(alt or "")
+        model = self._models.get(key)
+        if model is not None:
+            return model
         with self._lock:
-            if self._model is not None:
-                return
+            if key in self._models:
+                return self._models[key]
             log.info("Cargando modelo LaMa (puede tardar la primera vez)...")
             if SimpleLama is None:
                 raise RuntimeError("simple-lama-inpainting no instalado")
-            self._model = SimpleLama()
+            # SimpleLama ya mira LAMA_MODEL y hace torch.jit.load de esa
+            # ruta en vez de descargar el big-lama. Aprovechar ese gancho
+            # nos ahorra tener que traernos la arquitectura al programa:
+            # un TorchScript trae el grafo dentro.
+            if alt is not None:
+                os.environ["LAMA_MODEL"] = str(alt)
+                log.info("Modelo de inpainting alternativo: %s", alt.name)
+            else:
+                os.environ.pop("LAMA_MODEL", None)
+            self._models[key] = SimpleLama()
             log.info("Modelo LaMa cargado")
+            return self._models[key]
 
     @staticmethod
     def build_mask(
@@ -301,7 +383,7 @@ class Inpainter:
         mask for that region, run LaMa, then paste the cleaned crop
         back. Areas outside any cluster are preserved untouched.
         """
-        if not self.is_available() or self._model is None:
+        if not self.is_available():
             raise RuntimeError("LaMa no esta disponible")
         if image.mode != "RGB":
             image = image.convert("RGB")
@@ -309,13 +391,33 @@ class Inpainter:
             return image.copy()
 
         iw, ih = image.size
-        clusters = cluster_marks(marks, gap=cluster_gap)
-        log.info(
-            "Inpainting clusterizado: %d cluster(s) con padding=%d",
-            len(clusters), padding,
-        )
-
         result = image.copy()
+        # Una pasada por modelo. Cada una recorta de ``result`` y no del
+        # original, porque dos secciones vecinas con modelos distintos
+        # caen en pasadas distintas y la segunda tiene que ver lo que
+        # dejó la primera dentro de su recorte.
+        for name, group in group_by_model(marks):
+            model = self._ensure_model(name)
+            clusters = cluster_marks(group, gap=cluster_gap)
+            log.info(
+                "Inpainting clusterizado: %d cluster(s) con padding=%d, modelo=%s",
+                len(clusters), padding, name or "(por defecto)",
+            )
+            self._inpaint_clusters(
+                result, clusters, model, padding, (iw, ih),
+            )
+        return result
+
+    def _inpaint_clusters(
+        self,
+        result: Image.Image,
+        clusters: list[list[Mark]],
+        model,
+        padding: int,
+        image_size: tuple[int, int],
+    ) -> None:
+        """Rellena ``clusters`` sobre ``result``, en el sitio."""
+        iw, ih = image_size
         for c_idx, cluster in enumerate(clusters):
             bbox = union_bbox(mark_bbox(m) for m in cluster)
             # ``padding`` is context for LaMa, measured from the boxes.
@@ -340,18 +442,17 @@ class Inpainter:
                 crop_w, crop_h, x0, y0,
             )
 
-            crop = image.crop(crop_box)
+            crop = result.crop(crop_box)
             mask = self._build_mask_in_crop(
-                crop_box, cluster, crop_w, crop_h
+                crop, crop_box, cluster, crop_w, crop_h
             )
 
             if _mask_has_pixels(mask):
-                clean_crop = self._model(crop, mask)
+                clean_crop = model(crop, mask)
                 clean_crop = _crop_to(clean_crop, crop_w, crop_h)
-                result.paste(clean_crop, crop_box)
+                result.paste(clean_crop, crop_box, _paste_alpha(mask))
             else:
                 log.debug("  cluster %d: mask vacia, saltando", c_idx + 1)
-        return result
 
     def inpaint(
         self,
@@ -364,19 +465,17 @@ class Inpainter:
         image mask. The cluster-based path is :meth:`inpaint_marks`,
         used by the inpainting runner.
         """
-        if not self.is_available() or self._model is None:
+        if not self.is_available():
             raise RuntimeError("LaMa no esta disponible")
         if image.size != mask.size:
             mask = mask.resize(image.size, Image.Resampling.LANCZOS)
         if image.mode != "RGB":
             image = image.convert("RGB")
-        return self._model(image, mask)
-
-    def _inpaint_single(self, image: Image.Image, mask: Image.Image) -> Image.Image:
-        return self._model(image, mask)
+        return self._ensure_model()(image, mask)
 
     @staticmethod
     def _build_mask_in_crop(
+        crop: Image.Image,
         crop_box: tuple[int, int, int, int],
         cluster: list[Mark],
         crop_w: int,
@@ -384,28 +483,31 @@ class Inpainter:
     ) -> Image.Image:
         """Build a mask for a cropped region from a list of marks.
 
-        The mask is the mark area (in crop coordinates) grown by that
-        mark's own margin, so LaMa can produce a smooth transition at
-        the edges and the rotulado that spills past the box goes with
-        it. The crop's own padding (around the mask) is preserved as
-        context.
+        Dentro de la caja de cada marca engordada por su margen, lo que
+        se borra es el trazo del rótulo y no el rectángulo entero: ver
+        :mod:`src.utils.text_mask`. El rectángulo sigue siendo el techo
+        —fuera de él no se toca nada, que es lo que dibuja el punteado
+        del paso 2— y sigue siendo la respuesta cuando el trazo no se
+        detecta. El padding del recorte, alrededor de todo esto, se
+        conserva como contexto para LaMa.
         """
         x0, y0 = int(crop_box[0]), int(crop_box[1])
-        mask = Image.new("L", (int(crop_w), int(crop_h)), 0)
-        draw = ImageDraw.Draw(mask)
+        regions: list[tuple[text_mask.Rect, text_mask.Rect]] = []
         for m in cluster:
-            mask_pad = m.erase_padding
-            mx0 = int(m.x) - x0 - mask_pad
-            my0 = int(m.y) - y0 - mask_pad
-            mx1 = int(m.x + m.w) - x0 + mask_pad
-            my1 = int(m.y + m.h) - y0 + mask_pad
-            mx0 = max(0, mx0)
-            my0 = max(0, my0)
-            mx1 = min(int(crop_w), mx1)
-            my1 = min(int(crop_h), my1)
-            if mx1 > mx0 and my1 > my0:
-                draw.rectangle((mx0, my0, mx1, my1), fill=255)
-        return mask
+            box = (
+                int(m.x) - x0, int(m.y) - y0,
+                int(m.x + m.w) - x0, int(m.y + m.h) - y0,
+            )
+            pad = m.erase_padding
+            area = (
+                max(0, box[0] - pad),
+                max(0, box[1] - pad),
+                min(int(crop_w), box[2] + pad),
+                min(int(crop_h), box[3] + pad),
+            )
+            if area[2] > area[0] and area[3] > area[1]:
+                regions.append((box, area))
+        return text_mask.build_mask(crop, regions, INPAINT_MASK_DILATE_PX)
 
     def cleanup_to_disk(
         self,
@@ -459,6 +561,25 @@ def _crop_to(img: Image.Image, width: int, height: int) -> Image.Image:
 
 def _mask_has_pixels(mask: Image.Image) -> bool:
     return mask.getbbox() is not None
+
+
+def _paste_alpha(mask: Image.Image) -> Image.Image:
+    """Por dónde se pega lo que devuelve el modelo.
+
+    LaMa devuelve el recorte entero reconstruido, no solo el agujero:
+    pegarlo tal cual sustituye también los píxeles que estaban bien —el
+    contexto y todo el fondo que la máscara al trazo acaba de salvar— por
+    la regeneración de la red. Pegando por la máscara, lo de fuera queda
+    idéntico al byte.
+
+    Se ensancha antes de desenfocar a propósito. Un desenfoque a secas
+    baja el alfa dentro del borde de la máscara y deja transparentarse el
+    rótulo que se estaba borrando; ensanchando primero, la rampa cae
+    fuera, que es donde sirve para algo: mata la costura.
+    """
+    return mask.filter(ImageFilter.MaxFilter(5)).filter(
+        ImageFilter.GaussianBlur(1.5)
+    )
 
 
 def install_instructions() -> str:

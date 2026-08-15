@@ -12,12 +12,12 @@ import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from src.config import PROJECT_ROOT
+from src.config import USER_DATA_DIR
 
 _LOGGER_NAME = "visor"
 _LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
-_LOG_DIR: Path = PROJECT_ROOT / "logs"
+_LOG_DIR: Path = USER_DATA_DIR / "logs"
 _LOG_FILE: Path = _LOG_DIR / "app.log"
 _MAX_BYTES: int = 2 * 1024 * 1024
 _BACKUP_COUNT: int = 3
@@ -48,10 +48,15 @@ def setup_logging(level: int = logging.INFO) -> logging.Logger:
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
 
-    stream_handler = logging.StreamHandler(stream=sys.stderr)
-    stream_handler.setLevel(level)
-    stream_handler.setFormatter(formatter)
-    logger.addHandler(stream_handler)
+    # Empaquetada sin consola (``console=False`` en translator.spec) no hay
+    # stderr: ``sys.stderr`` es None y un StreamHandler ahí lanza una
+    # excepción por cada línea, que logging se traga en silencio. Ahí el
+    # archivo es el único destino, y es el que importa.
+    if sys.stderr is not None:
+        stream_handler = logging.StreamHandler(stream=sys.stderr)
+        stream_handler.setLevel(level)
+        stream_handler.setFormatter(formatter)
+        logger.addHandler(stream_handler)
 
     _initialized = True
     logger.info("===== Logging iniciado =====")

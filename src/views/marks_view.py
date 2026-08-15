@@ -35,6 +35,7 @@ from src.config import (
     COLOR_BG,
     COLOR_DIVIDER,
     COLOR_TEXT,
+    INPAINT_MODELS,
     MARK_DEFAULT_COLOR,
     MARK_MIN_SIZE,
     MARK_PADDING_MAX,
@@ -46,7 +47,14 @@ from src.config import (
     SIDEBAR_BG,
     SIDEBAR_SECTION_PAD,
 )
-from src.utils.inpainter import find_clean, has_clean
+from src.utils import external_edit
+from src.utils.inpainter import (
+    clean_is_stale,
+    find_clean,
+    has_clean,
+    marks_signature,
+    resolve_model,
+)
 from src.utils.logger import get_logger
 from src.utils.marks_store import Mark, MarksStore
 from src.utils.ocr_engine import OcrEngine
@@ -69,6 +77,10 @@ MODE_ALL = "all"
 MODE_ONE = "one"
 
 LOG_LINES = 3
+#: Cada cuánto se mira si el recorte que está en otro programa se ha
+#: guardado. Un ``stat`` por segundo no se nota, y el retoque aparece en
+#: el lienzo antes de que dé tiempo a volver la vista.
+EDIT_POLL_MS = 1000
 
 #: Right-hand tool dock. Narrower than the rail: it holds one column of
 #: buttons, and every pixel it takes comes off the page.
@@ -83,6 +95,26 @@ EDIT_TIP_OFF = "Agregar nueva área   E"
 EDIT_TIP_ON = "Agregando área: arrastra sobre la página   E"
 HIDE_TIP_ON = "Ocultar las marcas   H"
 HIDE_TIP_OFF = "Mostrar las marcas   H"
+
+#: Lo que se lee en el selector de modelo para «el de siempre». La marca
+#: guarda cadena vacía, que es lo que llevan todas las que nadie ha
+#: tocado; el resto de etiquetas salen de ``INPAINT_MODELS``.
+MODEL_DEFAULT_LABEL = "Normal"
+MODEL_LABELS: dict[str, str] = {MODEL_DEFAULT_LABEL: ""}
+MODEL_LABELS.update({name.capitalize(): name for name in sorted(INPAINT_MODELS)})
+
+
+def _model_label(name: str) -> str:
+    """La etiqueta de un modelo guardado en una marca.
+
+    Un nombre que ya no está en ``INPAINT_MODELS`` —un sidecar de otra
+    versión— se lee como el de siempre, que es también lo que hará la
+    limpieza cuando llegue.
+    """
+    for label, value in MODEL_LABELS.items():
+        if value == name:
+            return label
+    return MODEL_DEFAULT_LABEL
 
 
 class MarksView(tk.Frame):
@@ -162,8 +194,15 @@ class MarksView(tk.Frame):
         self._geom_vars: dict[str, tk.StringVar] = {}
         self._padding_var: tk.IntVar | None = None
         self._padding_label: tk.Label | None = None
+        self._model_var: tk.StringVar | None = None
         self._delete_btn: tk.Button | None = None
         self._rebuilding_inspector: bool = False
+
+        #: Recorte abierto ahora mismo en otro programa, o None. Uno cada
+        #: vez: dos vigilantes a la vez sobre la misma página se pisarían
+        #: el ``.clean``, y el caso no aparece marcando a mano.
+        self._edit_session: dict | None = None
+        self._edit_after: str | None = None
 
         self._build_ui()
         self._build_sidebar_sections()
@@ -326,7 +365,7 @@ class MarksView(tk.Frame):
         # next to the page, before committing to the slow cleaning pass.
         self._ocr_btn = self._tool_button(
             body, "list-ul-solid",
-            "Extraer texto: lee con Tesseract las marcas que aún no lo tienen",
+            "Extraer texto: lee las marcas que aún no lo tienen",
             self._extract_text,
         )
         self._reocr_btn = self._tool_button(
@@ -435,6 +474,7 @@ class MarksView(tk.Frame):
         self._geom_vars = {}
         self._padding_var = None
         self._padding_label = None
+        self._model_var = None
         self._delete_btn = None
 
         self._show_tools_dock(not self._running)
@@ -454,6 +494,7 @@ class MarksView(tk.Frame):
         self._geom_vars = {}
         self._padding_var = None
         self._padding_label = None
+        self._model_var = None
         self._refresh_inspector()
 
         self._sidebar.set_footer(
@@ -701,6 +742,7 @@ class MarksView(tk.Frame):
             self._geom_vars = {}
             self._padding_var = None
             self._padding_label = None
+            self._model_var = None
             self._delete_btn = None
             self._inspector_for = mark_id
             if mark_id is None:
@@ -740,6 +782,9 @@ class MarksView(tk.Frame):
         ):
             self._geom_field(grid, key, label, i // 2, i % 2)
         self._build_padding_slider(body, mark_id)
+        self._build_model_picker(body, mark_id)
+
+        self._build_external_button(body, mark_id)
 
         # The delete button goes directly under the fields: the rail is
         # short, and burying the destructive action below a paragraph of
@@ -796,6 +841,250 @@ class MarksView(tk.Frame):
             "rótulo se sale de la caja.",
             size=8, bg=SIDEBAR_BG, fg=NEUTRAL_600, wrap=210,
         ).pack(fill=tk.X, pady=(4, 8))
+
+    def _build_model_picker(self, body: tk.Misc, mark_id: int) -> None:
+        """Qué red rellena *esta* sección.
+
+        Por sección y no por capítulo porque el ganador cambia dentro de
+        la misma página: el modelo de siempre respeta los globos de fondo
+        liso —el afinado en manga les mete trama que no había— y el de
+        manga es el único que reconstruye la trama y el contorno del globo
+        cuando el fondo la lleva.
+
+        Cambiarlo marca la página como sucia por la vía de siempre: el
+        modelo entra en ``marks_signature``, así que la limpieza se
+        rehace sola.
+        """
+        if len(MODEL_LABELS) < 2:
+            return
+        current = self._stores[self._index].marks[mark_id].model
+        theme.field_label(body, "Modelo de limpieza").pack(fill=tk.X, pady=(2, 2))
+        self._model_var = tk.StringVar(value=_model_label(current))
+        theme.option_menu(
+            body, self._model_var, MODEL_LABELS,
+            command=self._on_model_change,
+        ).pack(fill=tk.X)
+        missing = [
+            name for name in sorted(INPAINT_MODELS)
+            if resolve_model(name) is None
+        ]
+        theme.body(
+            body,
+            f"Falta descargar: {', '.join(missing)}. Genéralos con "
+            "«python tools/trace_manga_lama.py»."
+            if missing else
+            "«Manga» reconstruye la trama; el normal deja más limpios "
+            "los globos de fondo liso.",
+            size=8, bg=SIDEBAR_BG, fg=NEUTRAL_600, wrap=210,
+        ).pack(fill=tk.X, pady=(4, 8))
+
+    # --- editing a section in another program ---------------------------
+
+    def _build_external_button(self, body: tk.Misc, mark_id: int) -> None:
+        """Sacar la sección a Photoshop, GIMP o lo que tenga el usuario.
+
+        Aquí y no en el dock de herramientas porque es lo único de la
+        pantalla que necesita una marca *concreta*: el dock trabaja sobre
+        el capítulo entero.
+        """
+        editing = self._edit_session or {}
+        mine = editing.get("mark_id") == mark_id and editing.get("page") == self._index
+        theme.button(
+            body,
+            "Terminar edición" if mine else "Editar fuera",
+            self._end_external_edit if mine else self._edit_outside,
+            variant="outline", size=8, padx=8, pady=7, anchor=tk.W,
+            tooltip=(
+                "Deja de vigilar el recorte"
+                if mine else
+                "Recorta la sección y la abre en otro programa; al "
+                "guardar allí, el retoque entra en la limpia"
+            ),
+        ).pack(fill=tk.X, pady=(2, 0))
+
+    def _clean_queue_has(self, path: Path) -> bool:
+        """¿Está la App limpiando esta página ahora mismo?"""
+        app = getattr(self.workflow, "app", None)
+        queue = getattr(app, "_clean_queue", None)
+        if queue is None or not hasattr(queue, "has_page"):
+            return False
+        try:
+            return bool(queue.has_page(path))
+        except Exception as exc:
+            log.warning("No se pudo consultar la cola de limpieza: %s", exc)
+            return False
+
+    def _edit_outside(self) -> None:
+        mark_id = self._selected_mark_id()
+        if mark_id is None:
+            return
+        if self._edit_session is not None:
+            theme.alert(
+                self, "Ya hay un recorte fuera",
+                "Termina la edición que tienes abierta antes de sacar otra "
+                "sección.",
+            )
+            return
+        path = self._items[self._index][0]
+        store = self._stores[self._index]
+        mark = store.marks[mark_id]
+
+        if self._clean_queue_has(path):
+            theme.alert(
+                self, "Página en la cola",
+                "Esta página se está limpiando ahora mismo. LaMa reescribe "
+                "la limpia entera, así que el retoque se perdería. Espera a "
+                "que termine.",
+            )
+            return
+        marks = list(store)
+        if clean_is_stale(path, marks, store.clean_signature):
+            ok = theme.confirm(
+                self, "Limpieza pendiente",
+                "Esta página todavía no está limpia del todo. Si la editas "
+                "ahora, la limpieza automática ya no volverá a pasar por "
+                "ella y sus demás marcas se quedarán como están.",
+                confirm_label="Editar de todas formas",
+            )
+            if not ok:
+                return
+
+        base = self._page_base(self._index)
+        try:
+            box = external_edit.region_box(mark, base.size)
+            dest = external_edit.region_file(path, mark.uid)
+            external_edit.export_region(base, box, dest)
+            external_edit.open_in_editor(dest)
+        except Exception as exc:
+            log.exception("No se pudo abrir el recorte: %s", exc)
+            self._status.set(f"No se pudo abrir el recorte: {exc}", "error")
+            return
+
+        self._edit_session = {
+            "page": self._index, "mark_id": mark_id, "uid": mark.uid,
+            "path": path, "box": box, "file": dest,
+            "stamp": self._file_stamp(dest), "settling": False,
+        }
+        self._rebuild_inspector()
+        self._status.set(
+            f"Marca {mark_id + 1} abierta fuera · guarda allí y el retoque "
+            "entra solo",
+            "working",
+        )
+        self._schedule_edit_poll()
+
+    def _rebuild_inspector(self) -> None:
+        """Rehacer el inspector con la *misma* marca seleccionada.
+
+        ``_refresh_inspector`` solo reconstruye cuando cambia la marca, y
+        aquí lo que cambia es el estado del botón, no la selección.
+        """
+        self._inspector_for = None
+        self._refresh_inspector()
+
+    def _page_base(self, index: int) -> Image.Image:
+        """La imagen sobre la que se retoca: la limpia si la hay.
+
+        Se lee del disco en vez de tirar de ``_clean_cache`` a propósito:
+        la caché puede llevar cargada desde antes del último retoque, y
+        lo que se pega tiene que salir de lo que hay escrito.
+        """
+        path, original = self._items[index]
+        cleaned = self._load_clean_image(path)
+        return cleaned if cleaned is not None else original
+
+    @staticmethod
+    def _file_stamp(path: Path) -> tuple[int, int] | None:
+        try:
+            st = path.stat()
+        except OSError:
+            return None
+        return (st.st_mtime_ns, st.st_size)
+
+    def _schedule_edit_poll(self) -> None:
+        if self._edit_session is None:
+            return
+        self._edit_after = self.after(EDIT_POLL_MS, self._poll_external_edit)
+
+    def _poll_external_edit(self) -> None:
+        """¿Ha guardado ya? Un segundo de retraso lo nota cualquiera.
+
+        No se aplica en cuanto el archivo cambia: los editores escriben en
+        dos pasadas y pegar a mitad de escritura da un PNG truncado. Hace
+        falta ver el mismo ``stat`` dos veces seguidas.
+        """
+        self._edit_after = None
+        session = self._edit_session
+        if session is None or not self.winfo_exists():
+            return
+        stamp = self._file_stamp(session["file"])
+        if stamp is None:
+            # Borrado o movido por el editor: se deja de vigilar antes de
+            # llenar el log de avisos idénticos.
+            self._status.set("El recorte ya no está donde estaba", "error")
+            self._end_external_edit()
+            return
+        if stamp != session["stamp"]:
+            session["stamp"] = stamp
+            session["settling"] = True
+            self._schedule_edit_poll()
+            return
+        if session["settling"]:
+            session["settling"] = False
+            self._apply_external_edit(session)
+        self._schedule_edit_poll()
+
+    def _apply_external_edit(self, session: dict) -> None:
+        index, path = session["page"], session["path"]
+        if index >= len(self._items) or self._items[index][0] != path:
+            self._end_external_edit()
+            return
+        store = self._stores[index]
+        try:
+            external_edit.apply_region(
+                path, self._page_base(index), session["box"], session["file"],
+            )
+        except Exception as exc:
+            log.exception("No se pudo aplicar el retoque: %s", exc)
+            self._status.set(f"No se pudo aplicar el retoque: {exc}", "error")
+            return
+        # Congela la página: sin esto, la siguiente pasada de limpieza la
+        # ve sucia, la rehace entera y se lleva el retoque por delante.
+        store.clean_signature = marks_signature(list(store))
+        self._clean_available[index] = True
+        self.on_clean_page_done(index, True)
+        # Se retoca sobre la limpia, así que mirando el original no se ve
+        # nada y la función parece no haber hecho nada. Vacía la caché
+        # antes la línea de arriba, o esto redibujaría lo de antes.
+        self._set_clean_mode(True)
+        self._status.set(
+            f"Retoque aplicado en {path.name} · sigue guardando si quieres",
+            "success",
+        )
+
+    def _end_external_edit(self, *, refresh: bool = True) -> None:
+        if self._edit_after is not None:
+            try:
+                self.after_cancel(self._edit_after)
+            except Exception:
+                pass
+            self._edit_after = None
+        had = self._edit_session is not None
+        self._edit_session = None
+        if had and refresh and self.winfo_exists():
+            self._rebuild_inspector()
+
+    def _on_model_change(self, label: str) -> None:
+        if self._rebuilding_inspector:
+            return
+        mark_id = self._selected_mark_id()
+        if mark_id is None or mark_id != self._inspector_for:
+            return
+        current = self._stores[self._index].marks[mark_id]
+        model = MODEL_LABELS.get(label, "")
+        if model == current.model:
+            return
+        self._apply_mark_geometry(mark_id, replace(current, model=model))
 
     def _on_padding_change(self, value: str) -> None:
         if self._rebuilding_inspector:
@@ -942,7 +1231,7 @@ class MarksView(tk.Frame):
         body = self._sidebar.section("Extracción en curso")
 
         self._meter_ocr, self._meter_ocr_count = self._meter_row(
-            body, "OCR", "Tesseract", COLOR_ACCENT,
+            body, "OCR", "Leyendo", COLOR_ACCENT,
         )
         self._pipeline_detail = theme.body(
             body, "Preparando…", size=8, bg=SIDEBAR_BG,
@@ -2013,8 +2302,8 @@ class MarksView(tk.Frame):
             return
         if not self._engine.is_available():
             self._status.set(
-                "Tesseract no está disponible: no se puede extraer el texto. "
-                "Revisa logs/app.log para ver dónde se buscó.", "error",
+                "No hay ningún motor de OCR disponible: no se puede extraer "
+                "el texto. Revisa logs/app.log para ver qué falló.", "error",
             )
             return
         for s in self._stores:
@@ -2204,6 +2493,10 @@ class MarksView(tk.Frame):
                 self.unbind_all(sequence)
             except Exception:
                 pass
+        try:
+            self._end_external_edit(refresh=False)
+        except Exception:
+            pass
         try:
             self._pipeline.detach()
         except Exception:

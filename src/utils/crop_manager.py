@@ -49,13 +49,20 @@ class CropManager:
         h: int,
         image_index: int = 0,
         mark_id: int = 0,
+        context: int = 0,
     ) -> Path:
-        """Crop ``image`` and write the result to a temp file."""
+        """Crop ``image`` and write the result to a temp file.
+
+        ``context`` ensancha el recorte esa cantidad de píxeles por cada
+        lado, recortada a la propia imagen. Es lo que necesita el detector
+        de RapidOCR para ver dónde acaba el texto; ver
+        :data:`~src.config.OCR_CONTEXT_PX`.
+        """
         iw, ih = image.size
-        x0 = max(0, min(x, iw))
-        y0 = max(0, min(y, ih))
-        x1 = max(0, min(x + w, iw))
-        y1 = max(0, min(y + h, ih))
+        x0 = max(0, min(x - context, iw))
+        y0 = max(0, min(y - context, ih))
+        x1 = max(0, min(x + w + context, iw))
+        y1 = max(0, min(y + h + context, ih))
         if x1 <= x0 or y1 <= y0:
             raise ValueError(f"Crop vacio: ({x0},{y0})-({x1},{y1})")
         region = image.crop((x0, y0, x1, y1))

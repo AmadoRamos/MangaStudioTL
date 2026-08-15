@@ -9,8 +9,8 @@ misma regla que en el sidecar: ausente es «sin tocar», no «puesto al
 valor por defecto».
 
 Los perfiles son de quien rotula, no del capítulo, así que viven en un
-único JSON en la raíz del proyecto y no dentro de cada sidecar. El
-sidecar solo guarda el nombre.
+único JSON del usuario (:data:`~src.config.USER_DATA_DIR`) y no dentro de
+cada sidecar. El sidecar solo guarda el nombre.
 """
 
 from __future__ import annotations
@@ -20,13 +20,13 @@ from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Iterable
 
-from src.config import PROJECT_ROOT, TEXT_PROFILES_FILE
+from src.config import USER_DATA_DIR, TEXT_PROFILES_FILE
 from src.utils.logger import get_logger
 from src.utils.marks_store import opt_bool, opt_color, opt_int
 
 log = get_logger("text_profiles")
 
-_PATH: Path = PROJECT_ROOT / TEXT_PROFILES_FILE
+_PATH: Path = USER_DATA_DIR / TEXT_PROFILES_FILE
 
 #: La fila de «sin perfil» del selector. No es el nombre de un perfil: una
 #: sección sin perfil cae directamente a los valores del capítulo. Vive

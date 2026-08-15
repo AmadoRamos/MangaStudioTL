@@ -3,6 +3,7 @@
 Run with: python -m pytest
 """
 
+import sys
 import time
 import tkinter as tk
 from pathlib import Path
@@ -348,6 +349,8 @@ def test_detail_panel(root: tk.Tk) -> None:
     class Store:
         def __init__(self, rows: list) -> None:
             self.rows = rows
+            self.marks = [Mark(x=0, y=0, w=9, h=9, color="#ffcc00")
+                          for _ in rows]
 
         def __len__(self) -> int:
             return len(self.rows)
@@ -638,3 +641,124 @@ def test_export_progress(root: tk.Tk) -> None:
     assert win._eta.cget("text") == ""
     assert win._page.cget("text") == "Terminando…"
     win.close()
+
+
+def test_user_data_dir_splits_only_once_frozen(monkeypatch) -> None:
+    """Los assets van en el bundle; lo que el usuario acumula, no.
+
+    Empaquetada, la carpeta de instalación se sobrescribe entera en cada
+    actualización y el desinstalador la borra, así que logs, historial y
+    perfiles tienen que salir de ahí. Ejecutando desde el repo no cambia
+    nada: seguir buscando los logs en otro sitio sería la sorpresa.
+
+    La rama congelada no la ejerce nadie más —solo corre dentro del .exe—,
+    así que se recarga el módulo con ``sys.frozen`` puesto.
+    """
+    import importlib
+
+    import src.config as config
+
+    assert config.USER_DATA_DIR == config.PROJECT_ROOT
+    from src.utils import logger
+
+    assert logger._LOG_DIR == config.PROJECT_ROOT / "logs"
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("APPDATA", r"C:\Users\quien\AppData\Roaming")
+    try:
+        frozen = importlib.reload(config)
+        assert frozen.USER_DATA_DIR == Path(
+            r"C:\Users\quien\AppData\Roaming\TallerRotulacion"
+        )
+        assert frozen.PROJECT_ROOT != frozen.USER_DATA_DIR
+    finally:
+        monkeypatch.undo()
+        importlib.reload(config)
+
+
+def test_inpaint_model_falls_back(monkeypatch, tmp_path) -> None:
+    """El modelo alternativo nunca puede dejar sin limpiar.
+
+    ``INPAINT_MODEL`` es una opción avanzada: gana en manga en blanco y
+    negro y estorba en webtoon a color, así que la pone quien está
+    probando algo. Un nombre mal escrito o un archivo que todavía no se
+    ha generado tienen que caer al big-lama de siempre, no tirar el paso
+    2 abajo — limpiar peor es más barato que no limpiar.
+    """
+    from src.utils import inpainter
+
+    assert inpainter.resolve_model("") is None
+    assert inpainter.resolve_model("noexiste") is None
+
+    # Nombre bueno, archivo que aún no está: sigue siendo respaldo.
+    monkeypatch.setattr(inpainter, "MODELS_DIR", tmp_path)
+    assert inpainter.resolve_model("manga") is None
+
+    (tmp_path / "lama-manga.pt").write_bytes(b"no es un modelo, solo existe")
+    assert inpainter.resolve_model("manga") == tmp_path / "lama-manga.pt"
+
+
+def test_mark_model_is_per_section(tmp_path) -> None:
+    """El modelo va en la marca, sobrevive al sidecar y rehace la limpieza.
+
+    Tres cosas en una: que ``model`` viaje al JSON solo cuando se ha
+    elegido —una sección sin tocar tiene que escribir el mismo sidecar
+    que antes—, que las marcas se repartan por modelo antes de
+    clusterizar (un cluster es una llamada a una red, y dos redes no
+    caben en una), y que cambiarlo mueva la firma, que es lo que manda
+    la página de vuelta a limpiar.
+    """
+    from src.utils.inpainter import group_by_model, marks_signature
+    from src.utils.marks_store import Mark, MarksStore
+
+    plain = Mark(x=0, y=0, w=10, h=10, color="#fff")
+    manga = Mark(x=20, y=0, w=10, h=10, color="#fff", model="manga")
+
+    assert "model" not in plain.to_dict()
+    assert manga.to_dict()["model"] == "manga"
+
+    store = MarksStore(tmp_path / "p.jpg")
+    store.set_marks([plain, manga])
+    assert [m.model for m in MarksStore(tmp_path / "p.jpg").load()] == ["", "manga"]
+
+    # Vecinas y con modelos distintos: nunca en el mismo grupo, y el de
+    # siempre primero para que la página salga igual dos veces seguidas.
+    assert group_by_model([manga, plain]) == [("", [plain]), ("manga", [manga])]
+
+    assert marks_signature([plain]) != marks_signature([manga])
+
+
+def test_overlapping_crops_do_not_undo_each_other() -> None:
+    """Dos clusters con recortes solapados no se pisan lo ya limpiado.
+
+    ``cluster_gap`` (32 px) separa clusters, pero el recorte se toma con
+    ``padding`` (64 px) alrededor, así que dos secciones a 40 px caen en
+    clusters distintos y sus recortes se solapan. El segundo pega el
+    recuadro entero, incluida la zona del primero — que en su máscara va
+    a cero, o sea que la red la devuelve tal como se la dieron. Tomando
+    el recorte del original eso reponía el rótulo ya borrado; hay que
+    tomarlo de lo que se lleva limpiado.
+    """
+    from PIL import Image
+
+    from src.utils.inpainter import Inpainter
+    from src.utils.marks_store import Mark
+
+    def blank_the_mask(crop, mask):
+        out = crop.copy()
+        out.paste(Image.new("RGB", crop.size, "white"), (0, 0), mask)
+        return out
+
+    a = Mark(x=100, y=100, w=30, h=30, color="#f00")
+    b = Mark(x=170, y=100, w=30, h=30, color="#f00")
+    page = Image.new("RGB", (400, 300), "white")
+    for m in (a, b):
+        page.paste(Image.new("RGB", (m.w, m.h), "black"), (m.x, m.y))
+
+    inpainter = Inpainter()
+    inpainter._models[""] = blank_the_mask
+    inpainter._available = True
+    out = inpainter.inpaint_marks(page, [a, b])
+
+    assert out.getpixel((110, 110)) == (255, 255, 255)
+    assert out.getpixel((180, 110)) == (255, 255, 255)

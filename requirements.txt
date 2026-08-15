@@ -1,5 +1,20 @@
 Pillow>=10.0.0
 tkinterdnd2>=0.4.2
+# La máscara de limpieza se recorta al trazo del rótulo con umbral de
+# Otsu, morfología y componentes conexas (src/utils/text_mask.py). opencv
+# ya venía instalado de refilón con rapidocr, pero depender de que otro
+# se lo traiga es cómo se rompe un `pip install` dentro de seis meses.
+opencv-python>=4.8.0
+# OCR: rapidocr es el motor principal y pytesseract el respaldo para lo
+# que aquel no ve. Ver src/utils/ocr_engine.py para las cifras que
+# pusieron a cada uno en su sitio. rapidocr corre sobre onnxruntime, que
+# ya entra con argostranslate, así que solo suma sus modelos ONNX.
+#
+# Clavada, y no con >=, por una razón concreta: de la 1.3.0 en adelante
+# todas declaran python_requires <3.13, así que en el 3.13 con el que se
+# desarrolla esto pip no instalaría ninguna. La 1.2.3 es la última sin
+# ese tope, y es la que se midió.
+rapidocr-onnxruntime==1.2.3
 pytesseract>=0.3.10
 # torch / torchvision arrive with simple-lama-inpainting, which owns the
 # version constraint — pinning them here only risks contradicting it.

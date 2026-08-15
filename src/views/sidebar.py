@@ -504,8 +504,11 @@ class Sidebar(tk.Frame):
         theme.kicker(body, "Motores", bg=SIDEBAR_BG).pack(
             fill=tk.X, pady=(0, 8),
         )
+        # La etiqueta dice «OCR» y no el nombre del motor: el estado que
+        # va al lado ya lo nombra —«RapidOCR» o «Tesseract v5.x»—, y son
+        # dos, así que fijar uno en la etiqueta contradecía al otro.
         self._engine_row(
-            body, "Tesseract", self._ocr_status, self._ocr_available,
+            body, "OCR", self._ocr_status, self._ocr_available,
         )
         self._engine_row(
             body, "LaMa", self._inpaint_status, self._inpaint_available,

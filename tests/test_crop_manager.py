@@ -84,3 +84,29 @@ def test_se_barren_las_carpetas_de_sesiones_muertas(
         assert mgr.root.exists()
     finally:
         mgr.cleanup()
+
+
+def test_el_contexto_ensancha_el_recorte(manager: CropManager) -> None:
+    """``context`` añade margen por los cuatro lados.
+
+    Es lo que necesita el detector de RapidOCR para ver dónde acaba el
+    texto; sin él deja bocadillos enteros sin leer.
+    """
+    img = Image.new("RGB", (200, 160), "white")
+    out = manager.crop(img, 50, 40, 60, 30, context=16)
+    with Image.open(out) as crop:
+        assert crop.size == (60 + 32, 30 + 32)
+
+
+def test_el_contexto_no_se_sale_de_la_imagen(manager: CropManager) -> None:
+    """Pegado a una esquina, el margen se recorta a lo que hay.
+
+    Sin esto, una marca en el borde pediría coordenadas negativas y el
+    recorte saldría desplazado.
+    """
+    img = Image.new("RGB", (100, 80), "white")
+    out = manager.crop(img, 0, 0, 40, 30, context=16)
+    with Image.open(out) as crop:
+        # Por arriba y por la izquierda no hay nada que añadir; por abajo
+        # y por la derecha sí caben los 16 px.
+        assert crop.size == (40 + 16, 30 + 16)

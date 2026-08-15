@@ -40,6 +40,12 @@ disable =
     # que comprueba de verdad.
     use-implicit-booleaness-not-comparison
 
+[TYPECHECK]
+# `cv2` no es un módulo: es un cargador que monta la extensión compilada
+# al importarla. Pylint no la ejecuta, así que para él no existe ni
+# `cv2.dilate`. La lista de abajo dice «de este módulo no opines».
+generated-members = cv2.*
+
 [FORMAT]
 max-line-length = 100
 

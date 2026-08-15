@@ -131,6 +131,18 @@ class CleanQueue(BackgroundWorker):
         with self._lock:
             return len(self._queue) + (1 if self._current is not None else 0)
 
+    def has_page(self, path: Path) -> bool:
+        """Whether ``path`` is queued or being cleaned right now.
+
+        Asked before editing a section in an external program: LaMa
+        rewrites the whole ``.clean`` file, so a page still in flight
+        would swallow a hand retouch pasted into it without a word.
+        """
+        with self._lock:
+            return path == self._current or any(
+                job.path == path for job in self._queue
+            )
+
     def progress(self) -> tuple[int, int]:
         with self._lock:
             return self._done, self._total

@@ -20,8 +20,19 @@ traducciones/
 # Páginas de ejemplo: son escaneos de terceros y pesan ~47 MB.
 # El código no las necesita para ejecutarse.
 example/
+manga_example/
+
+# Empaquetado (PyInstaller e Inno Setup)
+build/
+dist/
+output/
 
 # Editor / herramientas
 .claude/settings.local.json
 .vscode/
 .idea/
+
+# Modelos que se generan con tools/trace_manga_lama.py: 200 MB cada uno
+# y reproducibles desde el hash que fija ese script.
+models/
+docs/

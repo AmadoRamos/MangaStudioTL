@@ -9,7 +9,7 @@ defined in the original image's pixel coordinates. The schema is:
         "clean_signature": "3f1a9c02b7d4e5f6",
         "marks": [
             {"x": 100, "y": 50, "w": 200, "h": 80, "color": "#ffcc00",
-             "padding": 24}
+             "padding": 24, "uid": "A3F9K2", "model": "manga"}
         ],
         "ocr_results": {
             "0": {
@@ -38,7 +38,15 @@ defined in the original image's pixel coordinates. The schema is:
     }
 
 ``padding`` is optional and only written when the user tuned that box;
-without it the mark uses ``INPAINT_PADDING_PX``.
+without it the mark uses ``INPAINT_PADDING_PX``. ``model`` va igual:
+ausente es «el que valga para el capítulo», y solo aparece en las
+secciones a las que se les ha elegido otro a mano.
+
+``uid`` is the section's name for anything outside this file: seis
+caracteres alfanuméricos que se generan al crearla y no cambian nunca.
+El índice de la marca sirve dentro del sidecar, pero se corre en cuanto
+alguien borra una sección anterior, así que el CSV del paso 3 —que sale
+de la aplicación, se edita fuera y vuelve— viaja con el ``uid``.
 
 The per-section overrides of a translation (``color``, ``font_family``,
 ``max_pt``, ``bold``, ``italic``) are optional in the same way: the key
@@ -59,8 +67,10 @@ from __future__ import annotations
 
 import json
 import re
+import secrets
+import string
 import threading
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterable
@@ -70,8 +80,24 @@ from src.utils.logger import get_logger
 
 log = get_logger("marks_store")
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 7
 _lock = threading.Lock()
+
+#: Sin minúsculas ni ``0``/``O``/``1``/``I``: el id se lee en pantalla y
+#: se teclea en una hoja de cálculo, y ahí un cero y una o son el mismo
+#: error dos veces.
+_UID_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+UID_LENGTH = 6
+
+
+def new_uid() -> str:
+    """Un identificador de sección nuevo.
+
+    ponytail: sin comprobar colisiones. Son 32^6 ≈ 1.000 millones de
+    combinaciones contra los cientos de secciones de un capítulo; si
+    alguna vez importa, el sitio donde mirar es :meth:`MarksStore.add`.
+    """
+    return "".join(secrets.choice(_UID_ALPHABET) for _ in range(UID_LENGTH))
 
 #: Guión al final de renglón: en un globo estrecho es el maquetado
 #: partiendo una palabra —«SOME-\nTHING»— muchas más veces que un
@@ -109,6 +135,18 @@ class Mark:
     the user drew, and a globo with a thick outline needs more room than
     a caption. ``None`` means «use the chapter default», which is what
     every mark drawn before this field existed carries.
+
+    ``uid`` se rellena solo al construir la marca, así que dibujarla no
+    tiene que acordarse de nada; y ``replace`` lo conserva, que es lo
+    que hace que mover o redimensionar una sección no la convierta en
+    otra distinta para el CSV.
+
+    ``model`` es qué red rellena *esta* sección. Cadena vacía —lo
+    normal— es el modelo del capítulo, y el nombre corto de
+    ``INPAINT_MODELS`` una excepción a mano: en una misma página conviven
+    globos de fondo liso, donde el big-lama de siempre gana, y tramas,
+    donde gana el afinado en manga. Un nombre que ya no exista se lee
+    como «el del capítulo» y no deja la página sin limpiar.
     """
 
     x: int
@@ -117,6 +155,8 @@ class Mark:
     h: int
     color: str
     padding: int | None = None
+    uid: str = field(default_factory=new_uid)
+    model: str = ""
 
     @property
     def erase_padding(self) -> int:
@@ -136,6 +176,8 @@ class Mark:
         # has tuned keeps exactly the sidecar it had before.
         if data.get("padding") is None:
             data.pop("padding", None)
+        if not data.get("model"):
+            data.pop("model", None)
         return data
 
     @classmethod
@@ -145,6 +187,9 @@ class Mark:
             padding = None if raw is None else max(0, int(raw))
         except (TypeError, ValueError):
             padding = None
+        # Un sidecar de antes de que existiera el id estrena uno aquí;
+        # ``MarksStore.load`` se encarga de que quede escrito.
+        uid = str(data.get("uid") or "") or new_uid()
         return cls(
             x=int(data["x"]),
             y=int(data["y"]),
@@ -152,6 +197,8 @@ class Mark:
             h=int(data["h"]),
             color=str(data.get("color", "#ffcc00")),
             padding=padding,
+            uid=uid,
+            model=str(data.get("model") or ""),
         )
 
 
@@ -496,9 +543,11 @@ class MarksStore:
         self._clean_signature = str(data.get("clean_signature", ""))
         raw_marks = data.get("marks", [])
         loaded: list[Mark] = []
+        missing_uid = False
         for raw in raw_marks:
             try:
                 loaded.append(Mark.from_dict(raw))
+                missing_uid = missing_uid or not raw.get("uid")
             except (KeyError, TypeError, ValueError) as exc:
                 log.warning("Marca invalida en %s: %s (%s)", path, raw, exc)
         self._marks = loaded
@@ -531,6 +580,12 @@ class MarksStore:
         self._reindex_ocr()
         self._reindex_translations()
         self._dirty = False
+        if missing_uid:
+            # Los ids que acaba de estrenar un sidecar viejo se escriben
+            # ya: si no, cada sesión le pondría otros distintos y el CSV
+            # exportado hoy no encajaría con el capítulo de mañana.
+            self._dirty = True
+            self.save()
         log.info(
             "Cargadas %d marca(s), %d OCR y %d traduccion(es) de %s",
             len(self._marks),

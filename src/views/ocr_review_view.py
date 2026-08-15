@@ -13,6 +13,7 @@ hand instead.
 
 from __future__ import annotations
 
+import csv
 import tkinter as tk
 from dataclasses import replace
 from pathlib import Path
@@ -36,6 +37,7 @@ from src.config import (
 )
 from src.utils.logger import get_logger
 from src.utils.marks_store import MarksStore, OcrEntry, TranslationEntry
+from src.utils.section_csv import export_sections, import_sections
 from src.utils.translation_runner import TranslationRunner
 from src.utils.translator import Translator
 from src.views import theme
@@ -130,10 +132,14 @@ class OcrReviewView(tk.Frame):
         # no el 1 px de un botón suelto.
         for text, command, hint, last in (
             ("⌕ Extraer texto", self._extract_ocr,
-             "Vuelve al paso 2 y lee con Tesseract las secciones que aún "
+             "Vuelve al paso 2 y lee las secciones que aún "
              "no tienen texto", False),
             ("↻ Re-traducir todo", self._translate_all,
              "Vuelve a traducir todas las secciones con OCR", False),
+            ("⭳ Exportar CSV", self._export_csv,
+             "Guarda id, texto original y traducción de cada sección", False),
+            ("⭱ Cargar CSV", self._import_csv,
+             "Vuelca un CSV sobre las secciones, emparejando por id", False),
             ("⬇ Descargar par", self._ensure_pair_clicked,
              "Instala el par origen → destino de Argos", True),
         ):
@@ -232,7 +238,7 @@ class OcrReviewView(tk.Frame):
         theme.body(
             inner,
             "Puedes escribir la traducción a mano en cada sección y seguir "
-            "al paso 4, o instalar Tesseract y reintentar.",
+            "al paso 4, o revisar el motor de OCR y reintentar.",
             size=9, wrap=460,
         ).pack(fill=tk.X, pady=(12, 0))
         theme.button(
@@ -309,6 +315,70 @@ class OcrReviewView(tk.Frame):
         self._status.set(
             "Doble clic en la columna Traducción para escribir el texto", "info",
         )
+
+    # ------------------------------------------------------------------
+    # CSV
+    # ------------------------------------------------------------------
+
+    def _chapter_name(self) -> str:
+        app = getattr(self.winfo_toplevel(), "_app", None)
+        try:
+            return app.chapter_name() if app is not None else "capitulo"
+        except Exception:
+            return "capitulo"
+
+    def _export_csv(self) -> None:
+        if not self.workflow.total_marks():
+            self._status.set("No hay secciones que exportar", "info")
+            return
+        chosen = filedialog.asksaveasfilename(
+            title="Exportar secciones a CSV",
+            defaultextension=".csv",
+            initialfile=f"{self._chapter_name()}.csv",
+            filetypes=[("CSV", "*.csv"), ("Todos", "*.*")],
+            parent=self,
+        )
+        if not chosen:
+            return
+        try:
+            rows = export_sections(self._stores, Path(chosen))
+        except OSError as exc:
+            log.exception("No se pudo exportar el CSV: %s", exc)
+            self._status.set(f"No se pudo guardar el CSV: {exc}", "error")
+            return
+        self._status.set(
+            f"{rows} sección(es) en {Path(chosen).name}", "success",
+        )
+
+    def _import_csv(self) -> None:
+        chosen = filedialog.askopenfilename(
+            title="Cargar secciones desde CSV",
+            filetypes=[("CSV", "*.csv"), ("Todos", "*.*")],
+            parent=self,
+        )
+        if not chosen:
+            return
+        try:
+            applied, unknown = import_sections(
+                self._stores, Path(chosen),
+                source_lang=self._source_lang,
+                target_lang=self._target_lang,
+            )
+        except (OSError, UnicodeDecodeError, csv.Error) as exc:
+            log.exception("No se pudo cargar el CSV: %s", exc)
+            self._status.set(f"No se pudo leer el CSV: {exc}", "error")
+            return
+        # El estado vacío se rehace por si el capítulo entró aquí sin
+        # OCR: el CSV acaba de ponerle texto y la tabla ya tiene qué
+        # enseñar.
+        self._refresh_empty_state()
+        self._table.refresh()
+        self._refresh_counts()
+        self._refresh_progress()
+        detail = f"{applied} sección(es) actualizada(s)"
+        if unknown:
+            detail += f" · {unknown} id(s) que no son de este capítulo"
+        self._status.set(detail, "success" if applied else "info")
 
     # ------------------------------------------------------------------
     # Rail

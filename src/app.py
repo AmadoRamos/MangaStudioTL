@@ -25,6 +25,7 @@ from PIL import Image
 from src.config import (
     COLOR_BG,
     COLOR_TEXT,
+    PROJECT_ROOT,
     WINDOW_HEIGHT,
     WINDOW_MIN_HEIGHT,
     WINDOW_MIN_WIDTH,
@@ -80,6 +81,18 @@ class App:
             raise
 
         self.root.title(WINDOW_TITLE)
+        # El icono de la barra de titulo. En Windows ``iconbitmap`` quiere un
+        # .ico de verdad, no un PhotoImage, y ``default=`` lo hereda todo lo
+        # que se abra despues —los dialogos de exportar y de perfiles— sin
+        # tener que tocarlos uno a uno. Si falta el archivo, o si algun dia
+        # esto corre en Linux (donde el .ico no se acepta), sale el icono de
+        # plumas de Tk y ya esta: no es motivo para no arrancar.
+        try:
+            self.root.iconbitmap(
+                default=str(PROJECT_ROOT / "src" / "assets" / "logo.ico")
+            )
+        except Exception as exc:
+            log.warning("No se pudo cargar el icono de la ventana: %s", exc)
         self.root.configure(bg=COLOR_BG)
         self.root.minsize(WINDOW_MIN_WIDTH, WINDOW_MIN_HEIGHT)
         self._center_window(WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -108,18 +121,24 @@ class App:
         self._render_current_step()
 
     def _log_status(self) -> None:
-        if not self._engine.is_available():
-            binary = self._engine.binary_path() or find_tesseract() or "(no encontrado)"
-            log.warning("OCR no disponible. Buscado en: %s", binary)
-            log.warning("Para instalar: %s", install_instructions())
+        if self._engine.rapid_available():
+            log.info("OCR: RapidOCR listo (motor principal)")
         else:
+            log.warning("OCR: RapidOCR no disponible, solo queda Tesseract")
+        if self._engine.tesseract_available():
             log.info(
-                "OCR Tesseract v%s en %s",
+                "OCR: Tesseract v%s de reserva en %s",
                 self._engine.version() or "?",
                 self._engine.binary_path(),
             )
             langs = self._engine.available_languages()
-            log.info("Idiomas OCR disponibles: %s", ", ".join(langs) or "(ninguno)")
+            log.info("Idiomas Tesseract: %s", ", ".join(langs) or "(ninguno)")
+        else:
+            binary = self._engine.binary_path() or find_tesseract() or "(no encontrado)"
+            log.warning("OCR: sin Tesseract de reserva. Buscado en: %s", binary)
+            log.warning("Para instalar: %s", install_instructions())
+        if not self._engine.is_available():
+            log.warning("OCR no disponible: ningún motor responde")
         if not self._inpainter.is_available():
             log.warning("LaMa no disponible: %s", inpaint_instructions())
         else:
@@ -157,10 +176,16 @@ class App:
         self._content.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
     def _ocr_status_text(self) -> str:
-        if not self._engine.is_available():
-            return "No disponible"
-        version = self._engine.version() or "?"
-        return f"v{version}"
+        """Lo que ve el usuario en el rail: qué motor va a leer.
+
+        Nombra el que manda, no los dos: el respaldo solo importa cuando
+        RapidOCR se calla, y eso no es un estado que el rail deba contar.
+        """
+        if self._engine.rapid_available():
+            return "RapidOCR"
+        if self._engine.tesseract_available():
+            return f"Tesseract v{self._engine.version() or '?'}"
+        return "No disponible"
 
     def _inpaint_status_text(self) -> str:
         return "Listo" if self._inpainter.is_available() else "No disponible"

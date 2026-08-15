@@ -6,7 +6,8 @@ cd /d "%~dp0"
 set "EXIT_CODE=0"
 
 echo ============================================================
-echo  Visor de Manga y Webcomic
+REM Sin tilde: este .bat no fija codepage y cmd lo leeria con la del sistema.
+echo  Taller de Rotulacion
 echo ============================================================
 echo.
 

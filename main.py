@@ -7,7 +7,7 @@ from src.utils.logger import get_logger, log_file_path
 def main() -> None:
     log = get_logger("main")
     log.info("=" * 60)
-    log.info("Visor de Manga y Webcomic - Iniciando")
+    log.info("Taller de Rotulación - Iniciando")
     log.info("Log en: %s", log_file_path())
     log.info("=" * 60)
     try:

@@ -21,6 +21,7 @@ from typing import Callable
 
 from PIL import Image
 
+from src.config import OCR_CONTEXT_PX
 from src.utils.background_worker import BackgroundWorker
 from src.utils.crop_manager import CropManager
 from src.utils.logger import get_logger
@@ -92,11 +93,13 @@ class PipelineRunner(BackgroundWorker):
     # ------------------------------------------------------------------
 
     def resolve_lang(self, lang: str) -> str | None:
-        """The language Tesseract will actually use, or ``None``.
+        """El idioma que se usará de verdad, o ``None``.
 
-        Falls back to English — or to whatever is installed — when the
-        asked-for language has no traineddata. ``None`` means Tesseract
-        has no usable language at all and OCR cannot run.
+        Con RapidOCR delante cualquier idioma vale —lee alfabeto latino y
+        no elige— y esto devuelve el pedido tal cual. Sin él manda el
+        ``traineddata`` de Tesseract: se cae a inglés, o a lo que haya
+        instalado. ``None`` significa que no queda ningún motor con un
+        idioma utilizable y el paso no puede correr.
         """
         if self._ocr_engine.is_language_available(lang):
             return lang
@@ -118,6 +121,7 @@ class PipelineRunner(BackgroundWorker):
             crop_path = self._crop_manager.crop(
                 spec.image, spec.x, spec.y, spec.w, spec.h,
                 image_index=spec.image_index, mark_id=spec.mark_id,
+                context=OCR_CONTEXT_PX,
             )
             with Image.open(crop_path) as crop_img:
                 crop_img.load()
@@ -204,7 +208,10 @@ class PipelineRunner(BackgroundWorker):
         """Read every pending mark and write the text into its store."""
         if not self._ocr_engine.is_available():
             self._emit("_on_step_start", STEP_OCR, 2, "OCR no disponible")
-            self._emit("_on_step_done", STEP_OCR, False, "Tesseract no disponible")
+            self._emit(
+                "_on_step_done", STEP_OCR, False,
+                "Ningún motor de OCR disponible",
+            )
             return False
         # Marks with no text yet — unless the user asked for all of them.
         specs: list[OcrJobSpec] = []
@@ -230,7 +237,7 @@ class PipelineRunner(BackgroundWorker):
             self._emit("_on_step_start", STEP_OCR, 2, "OCR sin idiomas")
             self._emit(
                 "_on_step_done", STEP_OCR, False,
-                "Tesseract no tiene idiomas instalados",
+                "Tesseract no tiene idiomas instalados y RapidOCR no está",
             )
             return False
 
@@ -250,7 +257,7 @@ class PipelineRunner(BackgroundWorker):
                 text=result.text.strip(),
                 confidence=result.confidence,
                 language=result.language or lang,
-                engine="tesseract",
+                engine=result.engine or "tesseract",
             ))
             if result.text.strip():
                 with_text += 1

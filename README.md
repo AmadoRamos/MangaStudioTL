@@ -1,11 +1,14 @@
-# Visor de Manga y Webcomic
+# Taller de Rotulación
 
-Aplicación de escritorio (Tkinter) para traducir imágenes de manga / webcomic:
+Aplicación de escritorio (Tkinter) que hace el trabajo entero de rotular un
+cómic traducido —limpiar, leer, traducir y volver a rotular— sobre imágenes
+de manga o webcomic:
 
 1. **Cargar** imágenes o carpetas
 2. **Marcar** las secciones de texto con rectángulos
-3. **OCR** automático (Tesseract) sobre cada sección
-4. **Limpieza** de las áreas marcadas (LaMa inpainting), en segundo plano
+3. **OCR** automático (RapidOCR, con Tesseract de reserva) sobre cada sección
+4. **Limpieza** de las áreas marcadas (LaMa inpainting), en segundo plano,
+   con retoque opcional de una sección en el editor de imagen del usuario
 5. **Traducción** local y offline (Argos Translate)
 6. **Render** del texto traducido sobre la imagen limpia con fuente, tamaño y color por sección
 7. **Export** de las imágenes traducidas a una carpeta nueva
@@ -23,13 +26,33 @@ visible en la barra lateral, y puede volver atrás sin perder el trabajo.
 
 - **Python 3.10+** (probado con 3.13)
 - **Windows / macOS / Linux** (Tkinter viene con Python)
-- Para OCR: **Tesseract** (se instala aparte, ver abajo)
+- Para OCR: nada aparte. **RapidOCR** llega con `pip` y trae sus modelos.
+  **Tesseract** es opcional y solo actúa de reserva (ver abajo)
 - Conexión a internet solo la **primera vez** para descargar los modelos de Argos
   (~300 MB por par de idiomas). Después todo funciona offline.
 
 ---
 
-## Instalación rápida (Windows)
+## Instalación rápida (Windows) — instalador
+
+Si solo quieres **usar** la aplicación, descarga
+`TallerRotulacion_vX.Y.Z_Setup.exe` y ejecútalo. No hace falta Python ni nada
+más: el instalador trae dentro todo el motor (torch, LaMa, Argos) y
+ofrece descargar Tesseract como paso opcional.
+
+> Al marcar Tesseract, su instalador se abre aparte. **Marca ahí
+> "Additional language data → Spanish"**, o el modo «Español + Inglés»
+> del paso 3 no tendrá con qué trabajar.
+
+Lo que el usuario acumula —logs, historial de carpetas y perfiles de
+texto— vive en `%APPDATA%\TallerRotulacion`, no en la carpeta de instalación,
+así que una actualización no se lo lleva por delante. Las páginas
+traducidas se siguen guardando junto a los escaneos.
+
+Para compilar el instalador tú mismo, ver
+[Empaquetado](#empaquetado-generar-el-instalador).
+
+## Instalación rápida (Windows) — desde el código
 
 Doble clic sobre `run.bat`. El script:
 
@@ -61,7 +84,8 @@ python main.py
 
 | Dependencia | Cómo instalar | ¿Necesaria para...? |
 |-------------|---------------|---------------------|
-| **Tesseract** | Windows: `winget install UB-Mannheim.TesseractOCR` o descarga desde [github.com/UB-Mannheim/tesseract](https://github.com/UB-Mannheim/tesseract/releases). Linux: `sudo apt install tesseract-ocr tesseract-ocr-spa`. macOS: `brew install tesseract tesseract-lang` | Paso 2 → 3 (OCR). Sin Tesseract no se puede continuar desde el paso 2: se avisa y se queda ahí. |
+| **RapidOCR** | Entra con `pip install -r requirements.txt`. Sus modelos ONNX vienen dentro del paquete: no descarga nada. | Paso 2 → 3 (OCR). Es el motor principal. |
+| **Tesseract** *(opcional)* | Windows: `winget install UB-Mannheim.TesseractOCR` o descarga desde [github.com/UB-Mannheim/tesseract](https://github.com/UB-Mannheim/tesseract/releases). Linux: `sudo apt install tesseract-ocr tesseract-ocr-spa`. macOS: `brew install tesseract tesseract-lang` | Solo de reserva, para lo poco que RapidOCR no ve (≈1 de cada 40 marcas). Sin él el paso 3 sigue funcionando. |
 | **Argos Translate** | Se instala vía `pip install argostranslate`. Modelos: descarga automática al pulsar **"⬇ Descargar par"** en la vista del paso 3. | Paso 3 (traducción). Sin modelos descargados la traducción devuelve el texto original. |
 | **LaMa** | Se instala vía `pip install simple-lama-inpainting`. El modelo (~200 MB) se baja la primera vez que se ejecuta. | Limpieza en segundo plano, desde el paso 2 en adelante. Sin LaMa no se encola nada y la exportación usa la imagen original con texto. |
 
@@ -164,42 +188,52 @@ Tres reglas que valen para los cuatro pasos:
   que se pueda pulsar durante la pasada
 - **Sección seleccionada**: al elegir una marca —desde la lista o
   haciendo clic sobre ella en la página— el riel muestra su geometría
-  editable (`X`, `Y`, `Ancho`, `Alto`), el **Margen** de borrado y
-  **Eliminar marca**, en
-  los dos modos de vista. Sobre la página, en modo **Una**, la selección
+  editable (`X`, `Y`, `Ancho`, `Alto`), el **Margen** de borrado, el
+  **Modelo de limpieza** de esa sección, **Editar fuera** y **Eliminar
+  marca**, en los dos modos de vista. Sobre la página, en modo **Una**, la selección
   lleva ocho tiradores: arrastra dentro para moverla y los tiradores para
   redimensionarla. Los valores fuera de la imagen se recortan y el campo
   devuelve lo que se aceptó
-- **La marca seleccionada lleva un recuadro punteado alrededor: es lo
-  que se va a borrar.** El rotulado casi nunca termina justo en la caja
-  que se dibuja, así que la limpieza se come un margen extra; hasta ahora
-  ese margen era un único número para todo el capítulo (12 px) y no se
-  veía por ninguna parte. Ahora se ve, y el **Margen** del inspector lo
-  ajusta **marca por marca** con un deslizador de **0 a 100 px**: un
-  globo con contorno grueso puede pedir 60 mientras el resto de la
-  página sigue con 12. Deslizador y no un campo de número porque la
+- **La marca seleccionada lleva un recuadro punteado alrededor: es hasta
+  dónde puede llegar el borrado.** El rotulado casi nunca termina justo
+  en la caja que se dibuja, así que la limpieza se come un margen extra;
+  hasta ahora ese margen era un único número para todo el capítulo
+  (12 px) y no se veía por ninguna parte. Ahora se ve, y el **Margen**
+  del inspector lo ajusta **marca por marca** con un deslizador de **0 a
+  100 px**: un globo con contorno grueso puede pedir 60 mientras el resto
+  de la página sigue con 12. Deslizador y no un campo de número porque la
   respuesta útil se encuentra mirando la página —arrastra hasta que el
-  punteado deje libre el rótulo—, no sabiendo la cifra. El
-  punteado es exactamente el rectángulo que LaMa reconstruye, no una
-  aproximación. Solo aparece en la marca elegida —en los dos modos de
-  vista—: una página con dieciséis globos sería un muro de halos, y el
-  margen solo se mira cuando es el que se está tocando
+  punteado deje libre el rótulo—, no sabiendo la cifra. Dentro del
+  punteado se borra el rótulo y su contorno, no el rectángulo entero (ver
+  «La limpieza en segundo plano»); **fuera del punteado no se toca ni un
+  píxel**, y eso sí es exacto. Solo aparece en la marca elegida —en los
+  dos modos de vista—: una página con dieciséis globos sería un muro de
+  halos, y el margen solo se mira cuando es el que se está tocando
 - Una marca que nadie ha tocado **no guarda margen propio**: usa el del
   capítulo y su entrada en el sidecar queda igual que antes. Eso importa
   porque el margen entra en la firma que decide si una página hay que
   volver a limpiarla — escribir el valor que ya se estaba usando habría
   mandado el capítulo entero de vuelta a LaMa para nada
+- **Editar fuera** saca esa sección —el recuadro punteado, no solo la
+  caja— a un PNG y abre el diálogo «Abrir con» de Windows para elegir
+  Photoshop, GIMP, Krita o lo que haya instalado. Mientras esté abierto,
+  el botón pasa a **Terminar edición** y la aplicación vigila el archivo:
+  **cada vez que guardes allí, el retoque entra solo en la página limpia**,
+  en menos de dos segundos y sin cerrar el editor. Es la salida para lo
+  que LaMa no resuelve —trama complicada, rótulo sobre dibujo,
+  onomatopeya a toda página— sin tener que limpiar la página entera a
+  mano. Ver [Retocar una sección a mano](#retocar-una-sección-a-mano)
 - Eliminar una marca borra también su OCR y su traducción, y **reindexa
   las que van detrás** para que no queden pegadas a la caja del vecino
 - Cada marca del riel lleva un **✓** cuando ya tiene texto y un **·**
   cuando no; el tooltip enseña lo que se leyó, así que «no se extrajo
   nada» se ve aquí y no dos pasos más adelante
-- **Extraer texto** lee con Tesseract solo las marcas que aún están
+- **Extraer texto** lee solo las marcas que aún están
   vacías y **se queda en el paso 2**, para poder revisar el resultado
   antes de continuar. **Re-extraer** vuelve a leerlas todas; como eso
   reemplaza también las correcciones hechas a mano, pide confirmación
   diciendo cuántas se van a pisar
-- **El texto extraído va siempre en un solo renglón.** Tesseract
+- **El texto extraído va siempre en un solo renglón.** El OCR
   devuelve el recorte tal y como está rotulado el globo, renglón a
   renglón, pero eso no es como se lee la frase — y Argos parte por
   `\n` y traduce cada trozo por separado. `IM FINALLY \nGOLD` se une
@@ -224,8 +258,23 @@ Tres reglas que valen para los cuatro pasos:
   largo— y el ancho no se encoge cuando los recuentos cambian, así que
   la tira no salta bajo el cursor mientras se traduce
 - Las acciones de la barra (**⌕ Extraer texto**, **↻ Re-traducir todo**,
-  **⬇ Descargar par**) llevan el mismo borde de tinta que la tira de
-  filtros que tienen al lado, para que se lean como botones
+  **⭳ Exportar CSV**, **⭱ Cargar CSV**, **⬇ Descargar par**) llevan el
+  mismo borde de tinta que la tira de filtros que tienen al lado, para
+  que se lean como botones
+- **⭳ Exportar CSV** guarda una fila por sección con tres columnas —`id`,
+  `texto original`, `texto traducido`— para traducir el capítulo fuera de
+  la aplicación. **⭱ Cargar CSV** lo devuelve: cada fila se empareja por
+  su `id` y actualiza el texto original y el traducido de esa sección.
+  Se empareja por el `id` de la marca y no por `página·marca` porque ese
+  número se corre en cuanto se borra una sección anterior. **Una celda
+  vacía no borra**: una hoja rellenada a medias es lo normal, y tratarla
+  como «déjalo en blanco» tiraría el OCR de todo lo que aún no se ha
+  tocado; para vaciar una sección está la tabla. Las filas con un `id`
+  que no es de este capítulo se cuentan aparte y no detienen la carga.
+  Sale y entra en `utf-8` con BOM y acepta la coma o el punto y coma del
+  Excel en español
+- El `id` de la sección seleccionada se ve en el panel de detalle, junto
+  a su `página·marca`, que es lo que hay que buscar en el CSV
 - **Edición en la celda**: doble clic, `Enter` guarda, `Tab` pasa a la
   siguiente celda, `Esc` cancela, `Supr` borra la traducción
 - **Panel de detalle bajo la tabla** con el texto **entero** de la fila
@@ -321,9 +370,20 @@ Tres reglas que valen para los cuatro pasos:
 .
 ├── main.py                  Entrada de la app
 ├── run.bat                  Lanzador para Windows
-├── test_smoke.py            Comprobación rápida (python test_smoke.py)
-├── requirements.txt
+├── VERSION                  La versión que leen el .spec y el instalador
+├── requirements.txt         Lo que la aplicación importa
+├── requirements-dev.txt     pytest y pylint, clavados a una versión
+├── build_exe.bat            PyInstaller + Inno Setup, las dos mitades
+├── translator.spec          Receta de PyInstaller
+├── installer.iss            Receta de Inno Setup
+├── .pylintrc                Qué se apaga y por qué
 ├── logs/                    Se crea al primer arranque
+├── docs/                    Notas de trabajo, fuera del código
+├── tools/                   Utilidades de desarrollo; no se empaquetan
+│   ├── make_icon.py         Genera src/assets/logo.ico
+│   ├── manga_lama.py        La arquitectura LaMa, solo para trazar
+│   └── trace_manga_lama.py  Descarga y traza models/lama-manga.pt
+├── tests/                   Suite de pytest (ver «Pruebas»)
 └── src/
     ├── app.py               Controlador principal + ciclo de vida
     ├── config.py            Constantes (colores, fuentes, extensiones…)
@@ -336,17 +396,25 @@ Tres reglas que valen para los cuatro pasos:
     │   ├── crop_manager.py
     │   ├── dnd_handler.py
     │   ├── exporter.py            PNGs + sidecar JSON (con overrides per-sección)
+    │   ├── external_edit.py       Sacar una sección al editor del usuario
+    │   │                           y pegar de vuelta lo que guarde
     │   ├── image_loader.py
     │   ├── inpainter.py           LaMa wrapper + huella y caducidad de
     │   │                           la versión limpia
     │   ├── logger.py
-    │   ├── marks_store.py         Sidecars JSON (schema v5) con marcas,
+    │   ├── marks_store.py         Sidecars JSON (schema v7) con marcas,
     │   │                           OCR, traducciones, color/family/max_pt
     │   │                           y clean_signature
-    │   ├── ocr_engine.py          Wrapper de Tesseract
+    │   ├── ocr_engine.py          OCR híbrido: RapidOCR, y Tesseract
+    │   │                           cuando aquel no devuelve nada
     │   ├── pipeline_runner.py     OCR del capítulo: recorta, lee y escribe
     │   │                           en el store, todo en su propio hilo
     │   ├── recent_paths.py
+    │   ├── section_csv.py         El CSV del paso 3: id, texto original
+    │   │                           y traducción, emparejando por uid
+    │   ├── text_mask.py           Qué se borra dentro de la marca: el
+    │   │                           trazo del rótulo y su contorno, no el
+    │   │                           rectángulo
     │   ├── text_profiles.py       Perfiles de texto del usuario, en su
     │   │                           propio JSON (no en los sidecars)
     │   ├── text_renderer.py       Auto-fit de fuente (búsqueda binaria)
@@ -354,6 +422,9 @@ Tres reglas que valen para los cuatro pasos:
     │   │                           sección > perfil > capítulo se decide
     │   ├── translation_runner.py  Worker para Argos
     │   └── translator.py          Wrapper de Argos Translate
+    ├── assets/
+    │   ├── logo.ico               Icono del .exe y del instalador
+    │   └── images/                Los iconos del dock de herramientas
     └── views/
         ├── theme.py               Sistema Modernist: tokens, botones,
         │                           controles segmentados, medidores,
@@ -380,25 +451,65 @@ quedaron sin uso al acoplar los controles (`base_marks_view.py`,
 `marks_panel.py`, `popover.py`, `floating_bar.py`, `lru_cache.py`)
 están borrados.
 
-### Comprobación rápida
+### Pruebas
 
 ```bash
-python test_smoke.py
+pip install -r requirements-dev.txt
+python -m pytest
 ```
 
-Cubre las piezas que no se ven al usar la app: el reparto de eventos de
-`BackgroundWorker` (incluido que `detach()` descarte lo que quede en
-cola), el troceo de rutas del drag & drop, la regla de precedencia de
-`resolve_box` —incluido que editar un perfil no pise lo que la sección
-eligió—, la ida y vuelta de `text_profiles.json` con sus casos feos (un
-perfil sin nombre, un nombre duplicado, un archivo que no es JSON) y la
-geometría que comparten los dos lienzos: mover y redimensionar con su
-recorte, el volteo al cruzar un lado y el tamaño mínimo. También que el
-diálogo modal solo diga «sí» por el botón que confirma —cerrar la
-ventana o pulsar Escape es «no», y en una confirmación de borrado eso no
-puede depender de la suerte—.
-Imprime `OK` o revienta con un `assert`. No hay framework de pruebas y
-no hace falta uno para esto.
+**127 pruebas** en `tests/`, sin red, sin GPU y sin modelos: RapidOCR,
+Argos y LaMa van sustituidos por dobles donde hacen falta, porque
+cargarlos de verdad tarda más que la suite entera (~4 s). Lo que cubren,
+y por qué merece una prueba:
+
+- **La huella de la limpieza** (`test_inpainter`, `test_clean_queue`): qué
+  cambio manda una página de vuelta a LaMa y cuál no, y que una página
+  encolada dos veces se limpie una. Cada error aquí son decenas de
+  segundos de GPU por página
+- **La máscara** (`test_text_mask`): que se borre el rótulo y no el
+  dibujo, con sus dos salvedades
+- **El retoque externo** (`test_external_edit`): que el recorte vuelva
+  donde debe sin pisar el resto de la página, que un editor que devuelve
+  otro tamaño no rompa el pegado, y que el vigilante no pegue un PNG a
+  medio escribir ni aplique dos veces el mismo guardado
+- **El sidecar** (`test_marks_store`): qué se guarda, qué se reordena al
+  borrar una marca y qué migra de un esquema viejo
+- **El reparto de los dos motores de OCR** (`test_ocr_engine`), **el CSV
+  del paso 3** (`test_section_csv`), **qué archivos son páginas y cuáles
+  versiones limpias** (`test_image_loader`) y **por dónde deja pasar el
+  flujo** (`test_workflow`)
+- **El texto** (`test_text_renderer`): la regla —que ninguna línea se
+  salga, que una caja más grande nunca dé un cuerpo menor—, no medidas en
+  píxeles, que dependen de las fuentes instaladas
+- **Lo que se carga en memoria** (`test_clean_cache`): un capítulo de
+  webtoon son gigabytes si se descodifica entero
+- **La fontanería** (`test_smoke`): `BackgroundWorker` y su `detach()`, el
+  troceo de rutas del drag & drop, la precedencia de `resolve_box` y la
+  geometría compartida por los dos lienzos. También que el diálogo modal
+  solo diga «sí» por el botón que confirma — cerrar la ventana o pulsar
+  Escape es «no», y en una confirmación de borrado eso no puede depender
+  de la suerte
+
+`conftest.py` hace las dos cosas que ningún test puede hacer solo: una
+única raíz de Tk para toda la sesión —crear y destruir un `tk.Tk()` por
+test es lento y deja widgets huérfanos cuando uno falla a medias— y
+desviar los archivos del usuario, `text_profiles.json` y `.last_folder`, a
+un temporal, para que correr la suite no le pise sus perfiles ni su
+historial.
+
+El lint va aparte, con el listón en **7.5**:
+
+```bash
+python -m pylint src
+```
+
+`.pylintrc` explica cada regla que se apaga, y ninguna es «ruido que
+molesta»: son la diferencia entre la biblioteca de funciones que pylint
+supone y lo que esto es, una interfaz de Tkinter. Las versiones de
+`requirements-dev.txt` van clavadas y no con `>=`: una versión nueva de
+pylint estrena comprobaciones, y una comprobación nueva baja la nota de
+un código que no ha cambiado.
 
 ---
 
@@ -408,11 +519,11 @@ Cada imagen genera un sidecar `<imagen>.marks.json` con:
 
 ```json
 {
-  "version": 5,
+  "version": 7,
   "image": "0001_989fa3f1.jpg",
   "marks": [
     { "x": 100, "y": 50, "w": 200, "h": 80, "color": "#ffcc00",
-      "padding": 45 }
+      "padding": 45, "uid": "A3F9K2", "model": "manga" }
   ],
   "ocr_results": {
     "0": {
@@ -455,18 +566,34 @@ que el perfil de texto rellene lo que nadie tocó sin pisar lo que sí.
 `profile` guarda el **nombre** de un perfil, nunca una copia de sus
 valores: por eso editar un perfil alcanza a las secciones que lo usan. Un
 nombre que ya no exista se lee como «ninguno», no como error. Los perfiles
-en sí viven aparte, en `text_profiles.json` en la raíz del proyecto, porque
-son de quien rotula y no de un capítulo.
+en sí viven aparte, en `text_profiles.json`, porque son de quien rotula y
+no de un capítulo: junto al código si ejecutas desde el repositorio, y en
+`%APPDATA%\TallerRotulacion` si usas el instalador, que es donde una
+actualización no se los lleva por delante.
 
 `box_offset` es `[dx, dy, dw, dh]` **contra la marca**, no coordenadas
 absolutas. La marca define qué se borra y el cuadro dónde se escribe;
 guardar la diferencia es lo que hace que mover la marca en el paso 2 se
 lleve el texto con ella. Ausente significa «el cuadro es la marca».
 
+`uid` es el identificador de la sección: seis caracteres alfanuméricos que
+se generan al dibujarla y no cambian nunca. Dentro del sidecar las
+secciones se referencian por su índice, pero ese índice se corre en cuanto
+se borra una marca anterior; el `uid` es lo que sobrevive, y es la columna
+`id` del CSV del paso 3. Un sidecar de antes de esta versión estrena ids al
+abrirlo y se reescribe en el acto, para que no sean otros la sesión
+siguiente.
+
 `padding` es el margen de borrado de esa marca, en píxeles de la imagen, y
 también es opcional: **la clave solo aparece si el usuario la tocó**. Sin
 ella la marca usa `INPAINT_PADDING_PX`, así que un capítulo que nadie haya
 ajustado guarda exactamente el mismo sidecar que antes.
+
+`model` es qué red rellena esa sección, con la misma regla: la clave solo
+aparece si alguien eligió una en el inspector del paso 2 (ver [Modelo
+alternativo para manga](#modelo-alternativo-para-manga-opcional)). Un
+nombre que ya no exista se limpia con el de siempre y queda un aviso en el
+log.
 
 El `text` de `ocr_results` es **siempre un solo renglón**. La regla la aplica
 el propio store en sus dos únicas puertas —`OcrEntry.from_dict` al leer y
@@ -510,10 +637,43 @@ Cómo se comporta:
 - Si la limpieza acaba con el **paso 2** abierto, la página recoge su
   versión limpia igual, conservando zoom y posición
 
+**Lo que se borra son las letras, no el rectángulo.** Dentro del punteado
+la máscara se ciñe al trazo del rótulo: umbral de Otsu para separar tinta
+de fondo, la polaridad decidida por el borde del área —en el mismo
+capítulo hay letra negra sobre globo blanco y letra blanca sobre fondo
+oscuro—, y de todo lo que sale se quedan solo las **componentes conexas
+que tocan la caja**. Eso hace las dos cosas que se le piden: el contorno y
+la sombra del rótulo se van con la letra aunque se derramen fuera de la
+caja, y la trama, el borde del globo o la línea cinética que pasaban por
+debajo se quedan donde estaban en vez de acabar reinventadas. En las
+páginas de diálogo de `manga_example/` la máscara pasó a cubrir un 35–40 %
+de lo que cubría el rectángulo; en la del rótulo a toda página, que cae en
+la salvedad de abajo, no baja de él.
+
+Dos salvedades, las dos deliberadas:
+
+- Un rótulo con **contorno grueso** —los títulos y los efectos— se lleva
+  también su contorno, que se detecta porque el color pegado a la letra no
+  es un color que el fondo tenga. Si el contorno es tan ancho que ya no
+  queda fondo que salvar, la marca vuelve a borrarse como rectángulo. Es
+  lo correcto: rellenar la letra dejando el contorno puesto deja un
+  fantasma blanco con su forma, que es peor que no haber tocado nada
+- Cuando el umbral no encuentra un trazo creíble —cubre más del 65 % del
+  área, o menos del 0,5 %— **se borra el rectángulo de siempre**. Se
+  limpia como antes, nunca peor
+
+`INPAINT_MASK_DILATE_PX` (4 px) es cuánto se engorda el trazo detectado,
+para llevarse el antialiasing y el halo del JPEG. Es variable de entorno
+porque es el único número que depende del material.
+
+Y lo que devuelve el modelo **se pega solo por la máscara**. LaMa
+reconstruye el recorte entero, no solo el agujero: pegarlo tal cual
+sustituía también los píxeles que estaban bien.
+
 **Dos cosas distintas se llaman «padding».** El **margen** de cada marca
-(`INPAINT_PADDING_PX`, 12 px por defecto) es lo que se borra de más
-alrededor de la caja: es el recuadro punteado del paso 2, y es el que se
-edita por marca. El **contexto** (`INPAINT_DEFAULT_PADDING`, 64 px) no
+(`INPAINT_PADDING_PX`, 12 px por defecto) es hasta dónde puede llegar el
+borrado alrededor de la caja: es el recuadro punteado del paso 2, y es el
+que se edita por marca. El **contexto** (`INPAINT_DEFAULT_PADDING`, 64 px) no
 borra nada; es cuánta imagen de alrededor recibe LaMa para saber con qué
 rellenar. Si el margen de una marca se acerca al contexto, el recorte crece
 solo para que la máscara siga entrando con sitio de sobra: una máscara
@@ -523,11 +683,16 @@ fundir.
 **Cómo se sabe que una limpia quedó desfasada.** El sidecar guarda
 `clean_signature`, una huella de las cajas con las que se generó el archivo
 (`x,y,ancho,alto`, el margen de la marca cuando lo tenga, más el padding de
-contexto y el `cluster_gap` — el color no entra, porque no llega a la
-máscara). El margen solo entra en la huella si alguien lo puso: plegar el
-valor por defecto habría cambiado todas las huellas ya escritas y mandado
-capítulos enteros de vuelta a LaMa sin que se moviera nada. Si la huella
-actual no coincide, la página vuelve a la cola. En un capítulo limpiado antes de que existiera la firma,
+contexto, el `cluster_gap` y la versión de la máscara — el color no entra,
+porque no llega a la máscara). El margen solo entra en la huella si alguien
+lo puso: plegar el valor por defecto habría cambiado todas las huellas ya
+escritas y mandado capítulos enteros de vuelta a LaMa sin que se moviera
+nada. Si la huella actual no coincide, la página vuelve a la cola.
+
+> Al actualizar a la máscara ceñida al trazo, la versión de la máscara
+> cambió y **cada capítulo ya limpiado se rehace una vez**. Es a propósito:
+> un `.clean` escrito con la máscara rectangular ya no es el que sale hoy
+> de las mismas cajas. En un capítulo limpiado antes de que existiera la firma,
 o limpiado a mano en otra herramienta, no hay con qué comparar: entonces se
 respeta el archivo salvo que las marcas se hayan guardado **después** de
 escribirlo, que es la única evidencia disponible ahí.
@@ -536,6 +701,104 @@ El PNG se escribe a través de un temporal y se mueve de golpe. La limpieza
 corre en segundo plano, así que cerrar la app a mitad de un guardado es
 posible, y un PNG truncado se leería después como la versión limpia de la
 página.
+
+### Retocar una sección a mano
+
+LaMa resuelve la mayoría de los globos, pero no todos. Hasta ahora las dos
+únicas salidas eran dejar la página a medias o limpiarla entera en otro
+programa y dejar el `.clean.png` en la carpeta. **Editar fuera** es la
+puerta intermedia: una sección, el editor que quieras, y el resto del
+capítulo sigue automático.
+
+Cómo funciona:
+
+- Se recorta **el recuadro punteado** —la marca más su margen—, no la caja
+  pelada: el halo del rótulo es medio trabajo del retoque
+- Se recorta de **la versión limpia si ya existe**, y si no del original.
+  Se escribe siempre en `<imagen>.clean.png`; **la imagen original no se
+  toca nunca**, es la única copia del escaneo que hay
+- El pegado es **duro, sin difuminar el borde**. El suavizado que se
+  aplica a lo que devuelve LaMa existe para disimular la costura de una
+  regeneración automática; aquí el borde lo ha decidido una persona
+- Si el editor devuelve el recorte con otro tamaño —aplanado,
+  reencuadrado— se pega lo que quepa desde la esquina. Ni se escala, que
+  movería de sitio un retoque hecho a mano, ni se rellena el hueco, que
+  saldría en negro
+
+**El retoque congela la página.** Al aplicarlo se reescribe su
+`clean_signature`, o la siguiente pasada de limpieza la vería desfasada,
+la reharía entera y se llevaría el trabajo por delante sin decir nada. De
+ahí las dos advertencias:
+
+- Si la página **todavía tiene limpieza pendiente**, se pide confirmación
+  antes de abrir el editor: al congelarla, sus demás marcas se quedan como
+  están
+- Si la página **está en la cola ahora mismo**, el botón no deja pasar.
+  Hay que esperar a que termine
+- Si **después** mueves o redimensionas la marca, la huella cambia, LaMa
+  rehace la página y **el retoque se pierde**. Es coherente con el resto
+  del programa —tocar una caja es pedir que se vuelva a limpiar— pero
+  conviene saberlo: retoca al final
+
+Los recortes viven en `%TEMP%\taller_edit`. **Cada intento estrena
+archivo**, con la hora en el nombre
+(`example_002_EYKJTP_20260815-180412_a3f9x1.png`): hay editores que
+guardan sobre el archivo que abrieron sin releerlo, así que reutilizar el
+nombre devolvía la versión vieja encima del retoque nuevo, y Windows
+además puede tenerlo bloqueado mientras esté abierto. La carpeta se barre
+sola: lo de más de 24 h se borra al abrir la siguiente sección.
+
+El diálogo «Abrir con» sale por `rundll32 shell32.dll,OpenAs_RunDLL` y no
+por el verbo `openas` de `startfile`, que devuelve `WinError 1155` cuando
+el `.png` está asociado a una aplicación UWP —Fotos, la de fábrica—, o
+sea casi siempre. **Sale cada vez**, con tu programa ya preseleccionado a
+partir de la segunda: un clic por sección, a cambio de no tener una
+pantalla de ajustes con la ruta a un `.exe` que caduca en la siguiente
+actualización del editor. Fuera de Windows no hay selector y se abre el
+programa asociado.
+
+### Modelo alternativo para manga (opcional)
+
+Por defecto rellena `big-lama`, entrenado con fotografías. Existe un
+afinado sobre 300 000 páginas de manga y anime
+([dreMaz/AnimeMangaInpainting](https://huggingface.co/dreMaz/AnimeMangaInpainting),
+MIT) que se puede activar:
+
+```bash
+python tools/trace_manga_lama.py
+```
+
+Descarga 204 MB, verifica el hash, comprueba que el modelo funciona a
+varios tamaños y deja `models/lama-manga.pt`.
+
+Hecho eso, el inspector del paso 2 estrena un selector **Modelo de
+limpieza** debajo del margen. Va por sección y no por capítulo porque el
+ganador cambia dentro de la misma página: en un globo de fondo liso gana
+`Normal`, y en uno sobre trama gana `Manga`. Una sección sin tocar sigue
+usando el de siempre, así que un capítulo antiguo se limpia exactamente
+igual que ayer. Cambiar el modelo de una sección marca su página como
+sucia y la limpieza se rehace sola.
+
+Para poner otro por defecto a todo el capítulo:
+
+```bash
+set INPAINT_MODEL=manga
+```
+
+**No es mejor siempre, y por eso no es el valor por defecto.** Medido
+contra el mismo corpus con original de referencia:
+
+| | manga en blanco y negro | webtoon a color |
+|---|---|---|
+| victorias sobre `big-lama` | 45/60 (p = 0,0001) | 41/60 |
+| SSIM media | **+0,061** | +0,004 |
+| casos con ganancia clara (>0,05 SSIM) | **19 de 60** | 1 de 60 |
+| riesgo | trazo suelto ocasional | **ensucia 6 de 27 globos blancos** |
+
+En manga respeta el contorno del bocadillo, que es justo lo que `big-lama`
+se come. En webtoon alucina trama dentro de globos que deberían quedar en
+blanco. Si el archivo no está o el nombre no existe, se usa `big-lama` y se
+avisa en el log: la limpieza nunca se queda sin hacer por esto.
 
 ---
 
@@ -592,9 +855,21 @@ más alta del capítulo, para que el encuadre valga para todas.
 
 ### OCR no disponible
 
-- Instala Tesseract (ver tabla de dependencias de sistema)
-- En Windows, la app detecta automáticamente `C:\Program Files\Tesseract-OCR\tesseract.exe`
+Ahora hacen falta los dos motores caídos para llegar aquí, porque basta
+con uno:
+
+- Comprueba que RapidOCR está: `.venv\Scripts\python.exe -c "import rapidocr_onnxruntime"`.
+  Si falla, `pip install -r requirements.txt`
+- Tesseract es opcional. Si lo quieres de reserva, instálalo (ver tabla de
+  dependencias); en Windows la app detecta solo
+  `C:\Program Files\Tesseract-OCR\tesseract.exe`
 - Si está en otra ruta, cópiala a una de las ubicaciones estándar o añádela al PATH
+
+### El OCR lee peor de lo esperado
+
+El rail dice qué motor está leyendo. Si pone «Tesseract v5.x» en vez de
+«RapidOCR», el principal no cargó y estás viendo el respaldo, que en
+rotulado de cómic acierta bastante menos.
 
 ### Traducción devuelve el texto original
 
@@ -612,6 +887,27 @@ más alta del capítulo, para que el encuadre valga para todas.
   estaban al día
 - Para rehacer una página a mano, borra su `.clean.png` y vuelve a pasar
   por el paso 2: al continuar se detecta que falta y se encola
+
+### El retoque que hice fuera desapareció
+
+Moviste o redimensionaste la marca después de aplicarlo. Eso cambia la
+huella de la página, LaMa la rehace entera y el retoque se va con la
+versión vieja. Retoca al final, cuando las cajas ya no se van a tocar.
+
+Si el retoque **nunca llegó a entrar**, mira la barra de estado del paso
+2: se aplica al guardar en el editor, no al cerrarlo, y hay editores
+(algunos de Krita en adelante) que al guardar escriben un archivo nuevo y
+borran el que abrieron — ahí sale «El recorte ya no está donde estaba» y
+se deja de vigilar. Usa «Guardar» sobre el mismo archivo, no «Guardar
+como».
+
+### Al pulsar «Editar fuera» no pasa nada
+
+- Si la página está en la cola de limpieza, el botón avisa y no abre nada:
+  espera a que la banda **Limpieza · LaMa** desaparezca
+- El diálogo «Abrir con» puede tardar un par de segundos la primera vez
+- Revisa `logs/app.log`: si `rundll32` no arrancó, se cae al programa
+  asociado al `.png` y queda anotado
 
 ### La imagen exportada no tiene texto traducido
 
@@ -654,6 +950,33 @@ más alta del capítulo, para que el encuadre valga para todas.
   así que se engancha a la ventana raíz y el `App` reenvía el progreso a
   la vista en pantalla, si es que le interesa (`on_clean_page_done`,
   `on_clean_finished`)
+- **El recorte que está fuera se vigila con `stat`, no con `watchdog`.**
+  Un `after()` de Tk cada segundo comparando `st_mtime_ns` y el tamaño
+  cuesta cero dependencias y cero hilos, y un segundo de retraso no lo
+  nota nadie que venga de guardar en otra ventana. Lo que sí importa es
+  que **hacen falta dos lecturas iguales seguidas** antes de tocar la
+  limpia: los editores escriben en dos pasadas y pegar el PNG a medio
+  escribir mete una imagen truncada donde había trabajo bueno
+- **El OCR es dos motores y una regla.** RapidOCR lee primero; si
+  devuelve texto, ese texto vale. Si devuelve **vacío**, lee Tesseract.
+  Nada más: no hay heurística de calidad ni umbral de confianza, porque
+  el vacío es la única señal fiable que da RapidOCR de que no ha visto el
+  texto —se calla en vez de inventar—, mientras que un Tesseract perdido
+  entrega `LIGH... OKAY.` con toda su confianza y no hay forma de
+  distinguirlo de un acierto. Medido sobre las 40 marcas de `example/`,
+  el respaldo salta **1 vez de 40**
+- **Los 16 px de `OCR_CONTEXT_PX` no son cosmética.** RapidOCR detecta
+  antes de leer, y con el recorte ceñido a la marca deja bocadillos
+  enteros sin ver: su CER pasa de 0,067 a 0,167 al quitarlos, y los
+  recortes perfectos caen de 20 a 6. Con Tesseract ocurre lo contrario
+  —el contexto le da más que malinterpretar a su análisis de layout— pero
+  solo ve el recorte cuando RapidOCR ya se ha callado, y en ese caso
+  acertó igual con margen que sin él
+- **La cifra de OCR depende de la versión de OpenCV.** RapidOCR
+  preprocesa con ella, y el mismo código dio 0,042 con OpenCV 5.0 y 0,049
+  con la 4.11 que clava `simple-lama-inpainting`. Dos recortes de
+  cuarenta. La mediana (0,000) y los 21 perfectos no se movieron, pero un
+  número de OCR solo vale para el stack en el que se midió
 - **Argos parte por `\n`**: `ITranslation.split_into_paragraphs` es
   literalmente `input_text.split("\n")`, y cada trozo se traduce por su
   cuenta y se vuelve a unir con `\n`. Por eso el OCR se guarda en un
@@ -731,6 +1054,79 @@ más alta del capítulo, para que el encuadre valga para todas.
   guías antiguas) ya no se distribuye; las versiones modernas de
   `argostranslate` (≥ 1.7) incluyen su propio gestor como
   `argostranslate.package`
+
+---
+
+## Empaquetado: generar el instalador
+
+Produce un `.exe` autocontenido y, encima, un instalador de Windows.
+
+### Requisitos del que compila
+
+- El `.venv` del proyecto con `requirements.txt` instalado
+- [Inno Setup 6.1+](https://jrsoftware.org/isdl.php) (para el instalador;
+  el `.exe` suelto no lo necesita)
+
+PyInstaller no está en `requirements.txt` a propósito —la aplicación no
+lo importa— y `build_exe.bat` lo instala solo si falta.
+
+### Compilar
+
+```bash
+build_exe.bat
+```
+
+Hace las dos mitades: PyInstaller genera `dist\Taller de Rotulacion\` e Inno
+Setup empaqueta eso en `output\TallerRotulacion_vX.Y.Z_Setup.exe`. La versión
+sale del archivo `VERSION`.
+
+> Los nombres de archivo van **sin tilde** a propósito, y el nombre que se
+> ve —barra de título, accesos directos, instalador— **con** ella. Un `.bat`
+> y un `.iss` se leen con la codificación del sistema, no con UTF-8, y no
+> vale la pena jugársela por la ortografía de una carpeta.
+
+Para regenerar solo el ejecutable:
+
+```bash
+.venv\Scripts\python -m PyInstaller translator.spec --clean --noconfirm
+```
+
+### Qué esperar
+
+Medido en 1.0.0 (Windows 11, Python 3.13.5, PyInstaller 6.22):
+
+| | |
+|---|---|
+| PyInstaller | ~3 min |
+| Inno Setup | ~2 min |
+| `dist\` | 771 MB |
+| Instalador | **171 MB** (`lzma2` + compresión sólida lo dejan al 22 %) |
+
+El grueso no es la aplicación. En `dist\`: `torch` 361 MB y `cv2` 98 MB
+(los arrastra `simple-lama-inpainting`), `spacy` 77 MB y `ctranslate2`
+59 MB (los arrastra `argostranslate`).
+
+Los modelos **no** van dentro y se siguen descargando en el primer uso:
+LaMa (~200 MB) y cada par de Argos (~300 MB). Es el mismo comportamiento
+que ejecutando desde el código.
+
+### Decisiones del `.spec`
+
+- **onedir, no onefile.** Un onefile de 1,3 GB se descomprimiría entero
+  en cada arranque.
+- **Sin UPX.** Sobre las DLLs de torch tarda muchísimo y rompe algunas.
+- **`torch` y `tkinterdnd2` no pasan por `collect_all`**, aunque los
+  otros tres sí. PyInstaller ya trae hooks para ellos que afinan mejor:
+  el de torch excluye las cabeceras C++ (medio giga de `.h`/`.lib` que no
+  sirven en ejecución) y recoge las DLLs de MKL; el de tkinterdnd2 copia
+  solo el `tkdnd` de esta plataforma. Añadirlos pisaría ese criterio.
+
+### El icono
+
+`src/assets/logo.ico` está commiteado: compilar no depende de
+regenerarlo. Salió de `tools/make_icon.py`, que compone el icono de
+«marcar zona» en rojo acento sobre la baldosa de tinta. Es provisional —
+sustituir el `.ico` no toca ni el `.spec` ni el `.iss`.
 
 ---
 

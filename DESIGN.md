@@ -1,6 +1,6 @@
 # Design system — *Modernist*
 
-The visual language of **Visor de Manga y Webcomic**, ported from the
+The visual language of **Taller de Rotulación**, ported from the
 `Traductor de Manga - Mockups` canvas (direction 3a) onto Tk.
 
 This document is for anyone touching the interface. It says what the

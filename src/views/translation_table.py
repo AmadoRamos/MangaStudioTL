@@ -35,8 +35,16 @@ FILTER_ALL = "all"
 FILTER_PENDING = "pending"
 FILTER_LOW = "low"
 
-# Confidence bands. Tesseract's number means little on its own, so the
+# Confidence bands. The engine's number means little on its own, so the
 # table says what it implies instead.
+#
+# ponytail: los cortes están calibrados sobre la confianza de Tesseract,
+# que es la media de sus `conf` por palabra. RapidOCR entrega la media de
+# los scores de detección, que rara vez baja de 85, así que casi todo lo
+# suyo cae en la banda alta y el aviso avisa menos. No se han retocado
+# porque recalibrarlos pide medir confianza contra acierto real, y eso es
+# otro banco de pruebas. Si la banda deja de servir para filtrar, ahí está
+# el motivo.
 CONFIDENCE_HIGH = 85
 CONFIDENCE_LOW = 60
 
@@ -191,8 +199,13 @@ class TranslationTable(tk.Frame):
             ocr.text if ocr is not None else "",
             trans.text if trans is not None else "",
         )
+        # El id va aquí y no en una columna: es lo que hay que buscar en
+        # el CSV cuando una fila vuelve mal, y solo hace falta de la
+        # sección que se está mirando.
+        uid = store.marks[mark_id].uid if mark_id < len(store) else ""
         self._detail_kicker.configure(
-            text=f"SECCIÓN {page + 1:02d}·{mark_id + 1:02d}",
+            text=f"SECCIÓN {page + 1:02d}·{mark_id + 1:02d}"
+                 + (f" · {uid}" if uid else ""),
         )
         self._fill_area(self._detail_ocr, self._detail_loaded[0], enabled=True)
         self._fill_area(self._detail_trans, self._detail_loaded[1], enabled=True)

@@ -9,9 +9,11 @@ The ``COLOR_*`` / ``NEUTRAL_*`` / ``ACCENT_*`` names are the tokens, and
 every screen uses them directly.
 """
 
+import os
+import sys
 from pathlib import Path
 
-WINDOW_TITLE: str = "Visor de Manga y Webcomic"
+WINDOW_TITLE: str = "Taller de Rotulación"
 WINDOW_WIDTH: int = 1400
 WINDOW_HEIGHT: int = 850
 WINDOW_MIN_WIDTH: int = 1000
@@ -92,7 +94,25 @@ OCR_DEFAULT_LANG_LABEL: str = "Español + Inglés"
 OCR_MIN_CROP_HEIGHT: int = 30
 OCR_SCALE_FACTOR: float = 2.0
 OCR_TEMP_PREFIX: str = "visor_ocr_"
+#: Carpeta de los recortes que se están editando en otro programa. Fuera
+#: de la de OCR a propósito: aquella se borra entera al cerrar la app y
+#: en el siguiente arranque, y el usuario puede tener todavía el editor
+#: abierto sobre el archivo. Nombre fijo, sin sesión: el recorte de una
+#: marca se sobrescribe al volver a editarla.
+EDIT_TEMP_DIR: str = "taller_edit"
 OCR_TESSERACT_CMD: str | None = None
+#: Píxeles de página que acompañan a la marca cuando se recorta para OCR.
+#: No es cosmético: RapidOCR detecta antes de leer, y con el recorte
+#: ceñido al texto deja bocadillos enteros sin ver. Medido sobre las 40
+#: marcas de example/, pasar de 0 a 16 px baja su CER de 0,167 a 0,067 y
+#: sube los recortes perfectos de 6 a 20.
+#:
+#: El mismo recorte lo comparten los dos motores. A Tesseract el contexto
+#: le perjudica de media —su análisis de layout tiene más que
+#: malinterpretar—, pero solo lo ve cuando RapidOCR no ha leído nada, y en
+#: ese único caso del banco acertó igual con contexto que sin él. Recortar
+#: dos veces no cambiaba ni un decimal.
+OCR_CONTEXT_PX: int = 16
 
 CLEAN_SUFFIX: str = ".clean.png"
 #: Cuántas versiones limpias guardan descodificadas los pasos 2 y 4. Una
@@ -106,6 +126,45 @@ INPAINT_DEFAULT_PADDING: int = 64
 INPAINT_MIN_PADDING: int = 16
 INPAINT_MAX_PADDING: int = 256
 INPAINT_CLUSTER_GAP: int = 32
+
+#: Cuánto se engorda el trazo detectado antes de borrarlo. La máscara ya
+#: no es el rectángulo de la marca sino las letras que hay dentro, y una
+#: letra nunca acaba donde parece: tiene antialiasing, contorno, sombra
+#: paralela y el halo que deja el JPEG. Si ese halo se queda, el relleno
+#: puede ser perfecto y la página se ve sucia igual.
+#:
+#: Es variable de entorno por lo mismo que ``INPAINT_MODEL``: es el único
+#: número que hay que calibrar contra el material real —depende del
+#: grosor del trazo y de la resolución del escaneo— y la app instalada no
+#: deja editar este archivo. Un valor con letras se ignora sin ruido.
+INPAINT_MASK_DILATE_PX: int = (
+    int(os.environ["INPAINT_MASK_DILATE_PX"])
+    if os.environ.get("INPAINT_MASK_DILATE_PX", "").isdigit()
+    else 4
+)
+
+#: Qué modelo rellena. Vacío —lo normal— es el big-lama que descarga
+#: simple-lama-inpainting y que lleva funcionando desde el principio.
+#:
+#: ``manga`` cambia a un big-lama afinado sobre 300k páginas de manga
+#: (dreMaz/AnimeMangaInpainting, MIT), que hay que generar antes con
+#: ``python tools/trace_manga_lama.py``. El banco dice por qué no es el
+#: valor por defecto, y por qué existe la opción:
+#:
+#:   - en manga en blanco y negro gana 45/60 con máscara ajustada
+#:     (p=0,0001) y sobre todo respeta el contorno del globo, que es lo
+#:     que big-lama se come; gana >0,05 de SSIM en 19 de 60 parches y no
+#:     pierde más de 0,023 en ninguno.
+#:   - en webtoon a color no aporta nada (+0,004 de SSIM) y encima
+#:     alucina trama dentro de los globos blancos: ensucia 9 de las 27
+#:     marcas de fondo liso del corpus, 6 de forma bien visible.
+#:
+#: O sea que el ganador depende del material, y solo lo sabe quien rotula.
+INPAINT_MODEL: str = os.environ.get("INPAINT_MODEL", "")
+
+#: Nombre corto -> archivo TorchScript dentro de ``MODELS_DIR``, que se
+#: define abajo con el resto de rutas porque cuelga de USER_DATA_DIR.
+INPAINT_MODELS: dict[str, str] = {"manga": "lama-manga.pt"}
 
 SIDEBAR_WIDTH: int = 260
 SIDEBAR_BG: str = COLOR_SURFACE
@@ -174,8 +233,29 @@ TEXT_RENDER_FALLBACK_FAMILIES: tuple[str, ...] = (
 TEXT_RENDER_USER_MAX_PT_MIN: int = 10
 TEXT_RENDER_USER_MAX_PT_MAX: int = 96
 
-#: Los perfiles son de quien rotula, no del capítulo: un archivo en la
-#: raíz del proyecto, no un bloque dentro de cada sidecar.
+#: Los perfiles son de quien rotula, no del capítulo: un archivo suyo en
+#: USER_DATA_DIR, no un bloque dentro de cada sidecar.
 TEXT_PROFILES_FILE: str = "text_profiles.json"
 
+#: Raíz de los *assets*. Congelado con PyInstaller, ``__file__`` apunta
+#: dentro del bundle, así que esta línea resuelve sola en los dos casos.
 PROJECT_ROOT: Path = Path(__file__).resolve().parent.parent
+
+#: Dónde escribe la app: logs, historial de carpetas y perfiles de texto.
+#: En desarrollo es la raíz del proyecto —nada cambia—; instalada, es
+#: %APPDATA%, porque la carpeta de instalación se sobrescribe entera en
+#: cada actualización y el desinstalador la borra.
+USER_DATA_DIR: Path = (
+    # Sin tilde y sin espacios a proposito: esta carpeta la escriben tambien
+    # el instalador y el desinstalador (installer.iss), y un .iss se compila
+    # con la codificacion del sistema. Que las dos rutas coincidan al byte
+    # importa mas que la ortografia de un directorio que nadie mira.
+    Path(os.environ["APPDATA"]) / "TallerRotulacion"
+    if getattr(sys, "frozen", False) and os.environ.get("APPDATA")
+    else PROJECT_ROOT
+)
+
+#: Dónde viven los modelos que no descarga simple-lama por su cuenta.
+#: Datos de usuario y no assets: son 200 MB que el instalador no trae y
+#: que tienen que sobrevivir a una reinstalación.
+MODELS_DIR: Path = USER_DATA_DIR / "models"
