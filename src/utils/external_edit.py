@@ -164,31 +164,85 @@ def apply_region(
     log.info("Retoque aplicado en %s %s", clean_path(page_path).name, box)
 
 
+#: El «Abrir con» de macOS no tiene comando: lo que hay es
+#: ``choose application``, de las Standard Additions de AppleScript, y
+#: luego un ``open -a`` con lo que devuelva.
+#:
+#: La ruta viaja por ``argv`` y no incrustada en el texto del script a
+#: propósito: metiéndola dentro habría que escapar comillas y barras a
+#: mano, y una carpeta de capítulo con un apóstrofo en el nombre —o algo
+#: peor— rompería el script. Y es ``as alias`` porque coercionar después
+#: el resultado de un ``choose application`` pelado falla con las
+#: aplicaciones en cajón de arena.
+_MAC_OPEN_AS = (
+    "on run argv",
+    'set elegida to (choose application as alias with prompt '
+    '"Elige el programa para retocar la sección")',
+    'do shell script "open -a " & quoted form of POSIX path of elegida'
+    ' & " " & quoted form of (item 1 of argv)',
+    "end run",
+)
+
+
+def _open_commands(path: Path, platform: str = sys.platform) -> list[list[str]]:
+    """Los intentos de «abrir con» de ``platform``, del mejor al último.
+
+    Cada sistema tiene lo suyo, y no son equivalentes:
+
+    * **Windows** trae un selector de verdad. Va por ``rundll32`` y no por
+      el verbo ``openas`` de ``startfile`` porque ese verbo pasa por los
+      verbos registrados del tipo de archivo y devuelve ``WinError 1155``
+      cuando el ``.png`` está asociado a una aplicación UWP —Fotos, la de
+      fábrica—, que es el caso corriente. ``OpenAs_RunDLL`` es lo que abre
+      el propio Explorador y no depende de la asociación.
+    * **macOS** también, por AppleScript (ver :data:`_MAC_OPEN_AS`). El
+      ``open`` de detrás es solo por si el sistema viniera sin
+      ``osascript``; cancelar el selector no llega ahí, ver
+      :func:`open_in_editor`.
+    * **Linux no tiene ninguno.** ``xdg-open``, ``gio`` y ``kde-open``
+      abren el programa asociado y no preguntan; el único que pregunta,
+      ``mimeopen -a``, lo hace por terminal, y esto es una ventana sin
+      consola. Los tres están por cobertura de escritorio, no como
+      escalera de calidad: el que exista, gana. Si algún día aparece un
+      selector gráfico portable, entra el primero de esta lista.
+    """
+    target = str(path)
+    if platform.startswith("win"):
+        return [["rundll32.exe", "shell32.dll,OpenAs_RunDLL", target]]
+    if platform == "darwin":
+        script: list[str] = []
+        for line in _MAC_OPEN_AS:
+            script += ["-e", line]
+        return [["osascript", *script, target], ["open", target]]
+    return [["xdg-open", target], ["gio", "open", target], ["kde-open", target]]
+
+
 def open_in_editor(path: Path) -> None:
     """Abre ``path`` en el programa que elija el usuario.
 
-    En Windows sale el diálogo «Abrir con» del sistema, que lista
-    Photoshop, GIMP, Krita o lo que haya instalado. Sale más barato que
-    una pantalla de ajustes con la ruta a un ejecutable, y no hay una
-    ruta que se quede obsoleta cuando actualicen el editor.
+    Sale el diálogo «Abrir con» del sistema, que lista Photoshop, GIMP,
+    Krita o lo que haya instalado. Más barato que una pantalla de ajustes
+    con la ruta a un ejecutable, y no hay una ruta que se quede obsoleta
+    cuando actualicen el editor. En Linux no hay selector y se abre el
+    programa asociado; el porqué está en :func:`_open_commands`.
 
-    Por ``rundll32`` y no por el verbo ``openas`` de ``startfile``: ese
-    verbo pasa por los verbos registrados del tipo de archivo y devuelve
-    ``WinError 1155`` cuando el ``.png`` está asociado a una aplicación
-    UWP —Fotos, la de fábrica—, que es el caso corriente. ``OpenAs_RunDLL``
-    es lo que abre el propio Explorador y no depende de la asociación.
+    **El primer candidato que arranca cierra la lista, aunque después
+    falle.** Que un ``Popen`` reviente significa que ese binario no está
+    en este sistema, y entonces toca el siguiente; que el programa
+    lanzado termine mal es otra cosa. En macOS, cancelar el selector hace
+    salir a ``osascript`` con error, y eso es el usuario diciendo «ahora
+    no»: reintentar con ``open`` le abriría Vista Previa encima.
     """
-    if sys.platform.startswith("win"):
+    last: OSError | None = None
+    for command in _open_commands(path):
         try:
-            subprocess.Popen(  # pylint: disable=consider-using-with
-                ["rundll32.exe", "shell32.dll,OpenAs_RunDLL", str(path)],
-            )
+            subprocess.Popen(command)  # pylint: disable=consider-using-with
             return
         except OSError as exc:
-            log.warning("«Abrir con» no disponible (%s), abriendo normal", exc)
-            os.startfile(str(path))  # type: ignore[attr-defined]
-            return
-    # ponytail: fuera de Windows no hay selector, va el programa asociado.
-    # Con un «Abrir con» nativo equivalente, cambiarlo aquí.
-    opener = "open" if sys.platform == "darwin" else "xdg-open"
-    subprocess.Popen([opener, str(path)])  # pylint: disable=consider-using-with
+            log.warning("No se pudo lanzar %s: %s", command[0], exc)
+            last = exc
+    if sys.platform.startswith("win"):
+        # Sin selector, pero abrir con el asociado es mejor que no abrir.
+        os.startfile(str(path))  # type: ignore[attr-defined]
+        return
+    raise last if last is not None else OSError("Sin forma de abrir el recorte")

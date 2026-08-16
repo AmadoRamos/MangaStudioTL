@@ -17,6 +17,7 @@ from PIL import Image
 
 from src.config import EDIT_TEMP_DIR
 from src.utils.external_edit import (
+    _open_commands,
     _prune,
     apply_region,
     export_region,
@@ -112,6 +113,33 @@ def test_sin_limpia_previa_se_crea(tmp_path: Path) -> None:
 
     assert clean_path(ruta).exists()
     assert Image.open(clean_path(ruta)).getpixel(caja[:2]) == (255, 0, 0)
+
+
+def test_cada_sistema_usa_su_abrir_con() -> None:
+    """Los tres sistemas, sin ejecutar nada.
+
+    Es lo único de este reparto que se puede comprobar desde Windows: que
+    macOS y Linux hagan lo que dicen hay que verlo en un Mac y en un Linux.
+    """
+    ruta = Path("/tmp/pagina_ABC123.png")
+
+    (windows,) = _open_commands(ruta, "win32")
+    assert windows[:2] == ["rundll32.exe", "shell32.dll,OpenAs_RunDLL"]
+
+    mac, mac_reserva = _open_commands(ruta, "darwin")
+    assert mac[0] == "osascript"
+    assert any("choose application" in trozo for trozo in mac)
+    # La ruta va suelta al final, no incrustada en el texto del script:
+    # incrustarla obliga a escapar comillas a mano y una carpeta con un
+    # apóstrofo en el nombre rompería el AppleScript.
+    assert mac[-1] == str(ruta)
+    assert not any(str(ruta) in trozo for trozo in mac[:-1])
+    assert mac_reserva == ["open", str(ruta)]
+
+    linux = _open_commands(ruta, "linux")
+    assert linux[0] == ["xdg-open", str(ruta)]
+    # Ninguno de Linux pregunta: son cobertura de escritorio, no calidad.
+    assert all(cmd[-1] == str(ruta) for cmd in linux)
 
 
 def _vigilante(recorte: Path) -> SimpleNamespace:

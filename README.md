@@ -215,8 +215,9 @@ Tres reglas que valen para los cuatro pasos:
   volver a limpiarla — escribir el valor que ya se estaba usando habría
   mandado el capítulo entero de vuelta a LaMa para nada
 - **Editar fuera** saca esa sección —el recuadro punteado, no solo la
-  caja— a un PNG y abre el diálogo «Abrir con» de Windows para elegir
-  Photoshop, GIMP, Krita o lo que haya instalado. Mientras esté abierto,
+  caja— a un PNG y abre el diálogo «Abrir con» del sistema para elegir
+  Photoshop, GIMP, Krita o lo que haya instalado (en Linux no hay
+  selector: va el programa asociado). Mientras esté abierto,
   el botón pasa a **Terminar edición** y la aplicación vigila el archivo:
   **cada vez que guardes allí, el retoque entra solo en la página limpia**,
   en menos de dos segundos y sin cerrar el editor. Es la salida para lo
@@ -748,14 +749,31 @@ nombre devolvía la versión vieja encima del retoque nuevo, y Windows
 además puede tenerlo bloqueado mientras esté abierto. La carpeta se barre
 sola: lo de más de 24 h se borra al abrir la siguiente sección.
 
-El diálogo «Abrir con» sale por `rundll32 shell32.dll,OpenAs_RunDLL` y no
-por el verbo `openas` de `startfile`, que devuelve `WinError 1155` cuando
-el `.png` está asociado a una aplicación UWP —Fotos, la de fábrica—, o
-sea casi siempre. **Sale cada vez**, con tu programa ya preseleccionado a
-partir de la segunda: un clic por sección, a cambio de no tener una
-pantalla de ajustes con la ruta a un `.exe` que caduca en la siguiente
-actualización del editor. Fuera de Windows no hay selector y se abre el
-programa asociado.
+**Elegir el programa es cosa de cada sistema**, y no traen lo mismo:
+
+| | Selector | Cómo |
+|---|---|---|
+| **Windows** | Sí | `rundll32 shell32.dll,OpenAs_RunDLL` |
+| **macOS** | Sí | `choose application` de AppleScript, y luego `open -a` |
+| **Linux** | **No** | `xdg-open` (o `gio`, o `kde-open`): el programa asociado, sin preguntar |
+
+En Windows va por `rundll32` y no por el verbo `openas` de `startfile`,
+que devuelve `WinError 1155` cuando el `.png` está asociado a una
+aplicación UWP —Fotos, la de fábrica—, o sea casi siempre. **El diálogo
+sale cada vez**, con tu programa ya preseleccionado a partir de la
+segunda: un clic por sección, a cambio de no tener una pantalla de
+ajustes con la ruta a un `.exe` que caduca en la siguiente actualización
+del editor.
+
+En Linux no hay selector porque el sistema no tiene ninguno portable: los
+tres comandos de arriba abren el asociado y no preguntan, y el único que
+pregunta, `mimeopen -a`, lo hace por terminal, que aquí no existe. Si
+alguna vez aparece uno gráfico, entra el primero en `_open_commands`.
+
+Preferencia por no tener ajustes: guardar la ruta a un ejecutable
+significa una pantalla de ajustes, un selector de archivo y una ruta que
+se rompe en cuanto el usuario actualiza el editor. El diálogo del sistema
+ya sabe todo eso y lo mantiene alguien más.
 
 ### Modelo alternativo para manga (opcional)
 
