@@ -21,6 +21,7 @@ from src.utils.external_edit import (
     _prune,
     apply_region,
     export_region,
+    has_picker,
     region_box,
     region_file,
 )
@@ -140,6 +141,10 @@ def test_cada_sistema_usa_su_abrir_con() -> None:
     assert linux[0] == ["xdg-open", str(ruta)]
     # Ninguno de Linux pregunta: son cobertura de escritorio, no calidad.
     assert all(cmd[-1] == str(ruta) for cmd in linux)
+
+    # Y quien avisa al usuario lo sabe sin repetir el reparto de arriba.
+    assert has_picker("win32") and has_picker("darwin")
+    assert not has_picker("linux")
 
 
 def _vigilante(recorte: Path) -> SimpleNamespace:

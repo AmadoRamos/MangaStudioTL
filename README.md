@@ -770,6 +770,17 @@ tres comandos de arriba abren el asociado y no preguntan, y el único que
 pregunta, `mimeopen -a`, lo hace por terminal, que aquí no existe. Si
 alguna vez aparece uno gráfico, entra el primero en `_open_commands`.
 
+**El botón no se esconde en Linux**, porque la función va igual: con GIMP
+o Krita asociados al `.png`, «Editar fuera» los abre directamente y el
+ciclo entero —recortar, guardar, pegar— funciona, con un clic menos que
+en Windows. Lo que falta es elegir, no editar. Si lo que se abre es un
+visor, la barra de estado lo dice al abrirlo y da el arreglo, que es de
+una vez y para siempre:
+
+```bash
+xdg-mime default gimp.desktop image/png
+```
+
 Preferencia por no tener ajustes: guardar la ruta a un ejecutable
 significa una pantalla de ajustes, un selector de archivo y una ruta que
 se rompe en cuanto el usuario actualiza el editor. El diálogo del sistema

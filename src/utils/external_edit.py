@@ -217,6 +217,17 @@ def _open_commands(path: Path, platform: str = sys.platform) -> list[list[str]]:
     return [["xdg-open", target], ["gio", "open", target], ["kde-open", target]]
 
 
+def has_picker(platform: str = sys.platform) -> bool:
+    """Si este sistema deja elegir el programa, o abre el asociado.
+
+    Existe para que quien avisa al usuario no tenga que repetir el reparto
+    por sistema de :func:`_open_commands`: prometerle «elige tu editor» a
+    quien va a recibir el visor de imágenes de su escritorio es peor que
+    no decirle nada.
+    """
+    return platform.startswith("win") or platform == "darwin"
+
+
 def open_in_editor(path: Path) -> None:
     """Abre ``path`` en el programa que elija el usuario.
 

@@ -966,11 +966,16 @@ class MarksView(tk.Frame):
             "stamp": self._file_stamp(dest), "settling": False,
         }
         self._rebuild_inspector()
-        self._status.set(
-            f"Marca {mark_id + 1} abierta fuera · guarda allí y el retoque "
-            "entra solo",
-            "working",
+        # Donde no hay selector de programa se dice cuál se ha abierto, y
+        # cómo cambiarlo: prometer «guarda y entra solo» a quien acaba de
+        # recibir un visor de imágenes es prometer algo que no va a pasar.
+        detail = (
+            "guarda allí y el retoque entra solo"
+            if external_edit.has_picker() else
+            "abierta con el programa asociado a .png · si es un visor: "
+            "xdg-mime default gimp.desktop image/png"
         )
+        self._status.set(f"Marca {mark_id + 1} · {detail}", "working")
         self._schedule_edit_poll()
 
     def _rebuild_inspector(self) -> None:
