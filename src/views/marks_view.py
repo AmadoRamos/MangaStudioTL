@@ -162,7 +162,6 @@ class MarksView(tk.Frame):
         self._strip_draw_pending: bool = False
         self._expanded_pages: set[int] = {0}
         self._mark_ids_by_image: list[list[int]] = [[] for _ in self._items]
-        self._mark_to_canvas: dict[tuple[int, int], int] = {}
         self._selected: tuple[int, int] | None = None
         self._hovered: tuple[int, int] | None = None
         self._drag: dict | None = None
@@ -1322,7 +1321,6 @@ class MarksView(tk.Frame):
         self._strip_photos = {}
         self._strip_photo_ids = {}
         self._mark_ids_by_image = [[] for _ in self._items]
-        self._mark_to_canvas = {}
 
     def _build_single_canvas(self) -> None:
         self._marks_canvas = MarksCanvas(
@@ -1492,7 +1490,6 @@ class MarksView(tk.Frame):
         self._strip_photos = {}
         self._strip_photo_ids = {}
         self._mark_ids_by_image = [[] for _ in self._items]
-        self._mark_to_canvas = {}
 
         self._layout_strip()
         self._draw_strip()
@@ -1625,6 +1622,20 @@ class MarksView(tk.Frame):
             self._notified_strip_scale = scale
             self._update_zoom_controls()
 
+    def _visible_band(self) -> tuple[float, float, float, float]:
+        """Lo que la ventana de la cinta abarca: left, top, right, bottom.
+
+        En coordenadas de la cinta, que es donde está el layout. La usan
+        el rasterizado y el overlay de marcas: los dos tienen que
+        recortar por lo mismo, y con la cuenta escrita dos veces solo uno
+        de ellos lo hacía.
+        """
+        cw = max(self._canvas.winfo_width(), 1)
+        ch = max(self._canvas.winfo_height(), 1)
+        top = self._canvas.canvasy(0)
+        left = self._canvas.canvasx(0)
+        return left, top, left + cw, top + ch
+
     def _draw_strip(self, *, fast: bool = False) -> None:
         """Rasterise only the band of the strip the canvas can show.
 
@@ -1634,11 +1645,7 @@ class MarksView(tk.Frame):
         """
         if self._canvas is None or not self._strip_layout:
             return
-        cw = max(self._canvas.winfo_width(), 1)
-        ch = max(self._canvas.winfo_height(), 1)
-        top = self._canvas.canvasy(0)
-        left = self._canvas.canvasx(0)
-        bottom, right = top + ch, left + cw
+        left, top, right, bottom = self._visible_band()
         scale = self._strip_scale
         visible: set[int] = set()
 
@@ -1780,15 +1787,35 @@ class MarksView(tk.Frame):
 
     # --- strip coordinates ----------------------------------------------
 
+    def _overlay_pages(self) -> list[int]:
+        """Las páginas cuyas marcas hay que dibujar: las que se ven.
+
+        `_draw_strip` rasteriza solo la banda visible, y esto recorría el
+        capítulo entero: en 40 páginas con 15 globos eran ~600 items de
+        canvas destruidos y recreados en cada notch de rueda, el 95 %
+        fuera de pantalla. La seleccionada entra siempre aunque no se
+        vea, porque su recuadro de borrado se sale de la página y es la
+        única que dibuja uno.
+        """
+        left, top, right, bottom = self._visible_band()
+        paginas = [
+            idx for idx, (x0, y0, sw, sh) in enumerate(self._strip_layout)
+            if x0 < right and x0 + sw > left and y0 < bottom and y0 + sh > top
+        ]
+        if self._selected is not None:
+            elegida = self._selected[0]
+            if elegida not in paginas and 0 <= elegida < len(self._strip_layout):
+                paginas.append(elegida)
+        return paginas
+
     def _render_all_marks(self) -> None:
         for ids in self._mark_ids_by_image:
             for mid in ids:
                 self._canvas.delete(mid)
         self._mark_ids_by_image = [[] for _ in self._items]
-        self._mark_to_canvas = {}
         if not self._marks_visible or self._viewing_clean:
             return
-        for img_idx in range(len(self._strip_layout)):
+        for img_idx in self._overlay_pages():
             for mark_id, mark in enumerate(self._stores[img_idx]):
                 is_selected = self._selected == (img_idx, mark_id)
                 outline = COLOR_ACCENT if is_selected else mark.color
@@ -1810,8 +1837,9 @@ class MarksView(tk.Frame):
                     px2, py2 = self._image_to_strip(
                         img_idx, mark.x + mark.w + pad, mark.y + mark.h + pad,
                     )
-                    # Only tracked for deletion; the hit map keeps pointing
-                    # at the solid box, which is what a click means.
+                    # Only tracked for deletion; a click is answered by
+                    # `_hit_test_mark`, which works off the geometry and
+                    # not off the canvas items.
                     self._mark_ids_by_image[img_idx].append(
                         self._canvas.create_rectangle(
                             px1, py1, px2, py2,
@@ -1827,7 +1855,6 @@ class MarksView(tk.Frame):
                     tags=("mark", f"img_{img_idx}", f"mark_{mark_id}"),
                 )
                 self._mark_ids_by_image[img_idx].append(rid)
-                self._mark_to_canvas[(img_idx, mark_id)] = rid
 
     def _image_to_strip(self, img_idx: int, x: float, y: float) -> tuple[float, float]:
         if not 0 <= img_idx < len(self._strip_layout):
