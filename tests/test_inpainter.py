@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from PIL import Image
+
 from src.config import INPAINT_PADDING_PX
 from src.utils.inpainter import (
     Inpainter,
@@ -17,6 +19,7 @@ from src.utils.inpainter import (
     clean_path,
     cluster_marks,
     find_clean,
+    load_clean,
     marks_signature,
     union_bbox,
 )
@@ -108,6 +111,24 @@ def test_find_clean_acepta_cualquier_extension(tmp_path: Path) -> None:
     propia = clean_path(page)
     propia.write_bytes(b"x")
     assert find_clean(page) == propia
+
+
+def test_load_clean_devuelve_los_pixeles_o_nada(tmp_path: Path) -> None:
+    """Las tres vistas pedían esto con su propia copia de diez líneas."""
+    page = tmp_path / "p.png"
+    assert load_clean(page) is None  # no hay limpia
+
+    limpia = clean_path(page)
+    Image.new("RGB", (7, 5), "white").save(limpia)
+    cargada = load_clean(page)
+    assert cargada is not None and cargada.size == (7, 5)
+    # Lo que vuelve es una copia con el archivo ya cerrado: sigue
+    # leyéndose después de que el PNG desaparezca del disco.
+    limpia.unlink()
+    assert cargada.getpixel((0, 0)) == (255, 255, 255)
+
+    limpia.write_bytes(b"no soy un png")
+    assert load_clean(page) is None
 
 
 def test_dos_marcas_lejos_no_comparten_recorte() -> None:

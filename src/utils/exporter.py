@@ -20,7 +20,7 @@ from typing import Callable
 from PIL import Image
 
 from src.config import TRANSLATION_SIDECAR_SUFFIX, TRANSLATION_SUFFIX
-from src.utils.inpainter import find_clean
+from src.utils.inpainter import load_clean
 from src.utils.logger import get_logger
 from src.utils.marks_store import MarksStore
 from src.utils.text_renderer import (
@@ -73,22 +73,10 @@ def export_translations(
             except Exception as exc:
                 log.warning("Error en on_progress: %s", exc)
 
-        used_clean = True
-        cp = find_clean(path)
-        if cp is not None:
-            try:
-                base = Image.open(cp)
-                base.load()
-            except Exception as exc:
-                log.warning(
-                    "No se pudo abrir la limpia %s (%s), usando original",
-                    cp, exc,
-                )
-                base = _load_original(path)
-                used_clean = False
-        else:
+        base = load_clean(path)
+        used_clean = base is not None
+        if base is None:
             base = _load_original(path)
-            used_clean = False
         if base is None:
             log.error("No se pudo cargar imagen base para %s", path)
             results.append(ExportResult(
@@ -182,9 +170,9 @@ def export_translations(
 
 def _load_original(path: Path) -> Image.Image | None:
     try:
-        img = Image.open(path)
-        img.load()
-        return img.copy()
+        with Image.open(path) as img:
+            img.load()
+            return img.copy()
     except Exception as exc:
         log.exception("No se pudo abrir original %s: %s", path, exc)
         return None

@@ -52,6 +52,7 @@ from src.utils.inpainter import (
     clean_is_stale,
     find_clean,
     has_clean,
+    load_clean,
     marks_signature,
     resolve_model,
 )
@@ -995,7 +996,7 @@ class MarksView(tk.Frame):
         lo que se pega tiene que salir de lo que hay escrito.
         """
         path, original = self._items[index]
-        cleaned = self._load_clean_image(path)
+        cleaned = load_clean(path)
         return cleaned if cleaned is not None else original
 
     @staticmethod
@@ -1350,7 +1351,7 @@ class MarksView(tk.Frame):
         if self._viewing_clean and self._clean_available.get(self._index, False):
             display = self._clean_cache.get(self._index)
             if display is None:
-                display = self._load_clean_image(path)
+                display = load_clean(path)
                 if display is not None:
                     self._remember_clean(self._index, display)
             if display is not None:
@@ -1515,7 +1516,7 @@ class MarksView(tk.Frame):
             return img
         cached = self._clean_cache.get(idx)
         if cached is None:
-            cached = self._load_clean_image(path)
+            cached = load_clean(path)
             if cached is not None:
                 self._remember_clean(idx, cached)
         return cached if cached is not None else img
@@ -2235,18 +2236,6 @@ class MarksView(tk.Frame):
     def _refresh_clean_availability(self) -> None:
         for idx, (path, _) in enumerate(self._items):
             self._clean_available[idx] = has_clean(path)
-
-    def _load_clean_image(self, path: Path) -> Image.Image | None:
-        cp = find_clean(path)
-        if cp is None:
-            return None
-        try:
-            with Image.open(cp) as img:
-                img.load()
-                return img.copy()
-        except Exception as exc:
-            log.exception("No se pudo cargar limpia %s: %s", cp, exc)
-            return None
 
     # ------------------------------------------------------------------
     # Continue / Back / Pipeline

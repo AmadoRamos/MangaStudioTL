@@ -100,6 +100,26 @@ def has_clean(image_path: Path) -> bool:
     return find_clean(image_path) is not None
 
 
+def load_clean(image_path: Path) -> Image.Image | None:
+    """La limpia de ``image_path`` descodificada, o ``None``.
+
+    El escalón que faltaba al lado de :func:`find_clean`: los pasos 2 y
+    4 y la exportación quieren los píxeles, no la ruta, y cada uno tenía
+    su propia copia de estas diez líneas. Devuelve una copia en memoria
+    con el archivo ya cerrado, porque la imagen sobrevive a la llamada.
+    """
+    cp = find_clean(image_path)
+    if cp is None:
+        return None
+    try:
+        with Image.open(cp) as img:
+            img.load()
+            return img.copy()
+    except Exception as exc:
+        log.exception("No se pudo cargar limpia %s: %s", cp, exc)
+        return None
+
+
 def marks_signature(
     marks: Iterable[Mark],
     padding: int = INPAINT_DEFAULT_PADDING,

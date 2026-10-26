@@ -39,7 +39,7 @@ from src.config import (
     TRANSLATION_DIR_NAME,
 )
 from src.utils.exporter import export_translations
-from src.utils.inpainter import find_clean, has_clean
+from src.utils.inpainter import has_clean, load_clean
 from src.utils.logger import get_logger
 from src.utils import text_profiles
 from src.utils.marks_store import MarksStore, TranslationEntry
@@ -1065,7 +1065,7 @@ class RenderView(tk.Frame):
         if self._viewing_clean and has_clean(path):
             cached = self._clean_cache.get(self._index)
             if cached is None:
-                cached = self._load_clean_image(path)
+                cached = load_clean(path)
                 if cached is not None:
                     self._remember_clean(self._index, cached)
             if cached is not None:
@@ -1125,18 +1125,6 @@ class RenderView(tk.Frame):
                 self._clean_cache, key=lambda i: abs(i - self._index),
             )
             del self._clean_cache[furthest]
-
-    def _load_clean_image(self, path: Path) -> Image.Image | None:
-        cp = find_clean(path)
-        if cp is None:
-            return None
-        try:
-            with Image.open(cp) as img:
-                img.load()
-                return img.copy()
-        except Exception as exc:
-            log.exception("No se pudo cargar limpia %s: %s", cp, exc)
-            return None
 
     def _build_font_options(self) -> list[str]:
         merged: list[str] = []
