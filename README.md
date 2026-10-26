@@ -1188,4 +1188,35 @@ sustituir el `.ico` no toca ni el `.spec` ni el `.iss`.
 
 ## Licencia
 
-Uso personal.
+[MIT](LICENSE): haz lo que quieras con esto, citando la procedencia y sin
+garantía de nada.
+
+Con una excepción, y es a propósito: **`tools/manga_lama.py` no está
+cubierto**. Es la arquitectura de LaMa recortada de
+`zyddnys/manga-image-translator`, que es GPL-3.0, aunque ese código venga
+a su vez del LaMa original de `advimman/lama` (Apache-2.0); su cabecera lo
+cuenta y por inspección no se puede saber cuánto de lo recortado es de
+cada uno. No lo importa nada de `src/` y no se empaqueta: solo sirve para
+generar el modelo opcional «manga» desde el repo, así que el instalador no
+lleva nada de eso dentro. Quien quiera quitarse la duda del todo, rehace
+ese archivo desde `advimman/lama` o lo borra y pierde ese modelo.
+
+### Lo que va dentro y lo que se descarga
+
+El instalador trae PyTorch (BSD-3), OpenCV, spaCy, ctranslate2, Pillow,
+rapidocr y onnxruntime, todas permisivas, cada una con su licencia en su
+carpeta dentro de `_internal`.
+
+Los modelos **no** van dentro: los descarga la máquina de quien lo usa,
+cada uno de su origen, y por eso este proyecto no redistribuye ninguno.
+
+- **big-lama**, el de la limpieza. El código de LaMa es Apache-2.0
+  (Samsung Research), pero la licencia de los pesos no acompaña a la
+  descarga y sigue [sin aclarar en el propio repo][lama-366]; ese hilo
+  recuerda además que se entrenó con Places2, cuyos términos son de
+  investigación no comercial. Para uso comercial, eso hay que mirarlo:
+  este programa solo te lo baja.
+- **Tesseract** (Apache-2.0), opcional, de la release de UB-Mannheim.
+- **Pares de Argos**, del índice de argostranslate.
+
+[lama-366]: https://github.com/advimman/lama/issues/366

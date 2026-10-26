@@ -11,10 +11,13 @@ Se le ha quitado la clase asincrona del inpainter —que arrastra la config,
 las utilidades y las descargas de ese proyecto— y no se ha tocado nada mas,
 para que el .ckpt cargue tal cual.
 
-OJO con la licencia si esto llega a distribuirse: manga-image-translator es
-GPL-3.0 aunque el codigo de la arquitectura sea de origen Apache-2.0. Para
-uso propio da igual; para publicar, conviene rehacer este archivo desde el
-repo de advimman/lama y quitarse la duda.
+LICENCIA: este archivo NO entra en la MIT del resto del repo, y el README lo
+dice. manga-image-translator es GPL-3.0 aunque el codigo de la arquitectura
+sea de origen Apache-2.0, y por inspeccion no se puede saber cuanto de lo
+recortado es de cada uno. Que no se empaquete ni lo importe src/ mantiene la
+duda fuera de lo que se distribuye, pero no la resuelve: para eso hay que
+rehacer el archivo desde el repo de advimman/lama, o borrarlo y quedarse sin
+el modelo «manga», que es una mejora y no un requisito.
 """
 import os
 import cv2
