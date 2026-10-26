@@ -34,6 +34,12 @@ disable =
     # lint. El andamio de la selección sí se unificó: vive en
     # `ZoomedCanvas` detrás de `_selection_rect`.
     duplicate-code,
+    # `BackgroundWorker` es una base con dos puntos de extensión que
+    # cada worker firma a su manera a propósito: `_run_job` recibe los
+    # argumentos que `_start_thread` le pase y `attach` añade los
+    # callbacks de ese worker. Son cuatro sitios en src y los dobles de
+    # los tests, y ninguno es un descuido.
+    arguments-differ,
     # `_selection_rect` es un punto de extensión: la base contesta
     # «no hay nada seleccionado» con None y cada lienzo dice lo suyo.
     # Asignar su resultado no es el descuido que esta regla busca.

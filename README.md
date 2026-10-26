@@ -462,7 +462,7 @@ pip install -r requirements-dev.txt
 python -m pytest
 ```
 
-**127 pruebas** en `tests/`, sin red, sin GPU y sin modelos: RapidOCR,
+**195 pruebas** en `tests/`, sin red, sin GPU y sin modelos: RapidOCR,
 Argos y LaMa van sustituidos por dobles donde hacen falta, porque
 cargarlos de verdad tarda más que la suite entera (~4 s). Lo que cubren,
 y por qué merece una prueba:
@@ -488,12 +488,30 @@ y por qué merece una prueba:
   píxeles, que dependen de las fuentes instaladas
 - **Lo que se carga en memoria** (`test_clean_cache`): un capítulo de
   webtoon son gigabytes si se descodifica entero
-- **La fontanería** (`test_smoke`): `BackgroundWorker` y su `detach()`, el
-  troceo de rutas del drag & drop, la precedencia de `resolve_box` y la
-  geometría compartida por los dos lienzos. También que el diálogo modal
-  solo diga «sí» por el botón que confirma — cerrar la ventana o pulsar
-  Escape es «no», y en una confirmación de borrado eso no puede depender
-  de la suerte
+- **La cinta del paso 2** (`test_strip_overlay`): que rasterizar y dibujar
+  marcas recorten los dos por la banda visible —dibujar las de todas las
+  páginas eran cientos de items de canvas por notch de rueda— y la ida y
+  vuelta entre coordenadas de cinta y de página
+- **Los agarres de la selección** (`test_selection_handles`): que el
+  andamio siga siendo uno solo para los dos lienzos, y que cada uno diga
+  lo suyo por `_selection_rect`
+- **Los hilos** (`test_background_worker`, `test_translation_runner`,
+  `test_pipeline_runner`): que un callback se busque al despachar el
+  evento y no al encolarlo, que uno que revienta no se lleve a los demás,
+  en qué orden llega el progreso, que cancelar pare entre marcas, y que
+  el recorte temporal del OCR se borre también cuando el motor falla
+- **La traducción** (`test_translator`): las dos formas de la API de
+  Argos —leer la equivocada dejaba la lista de pares vacía para siempre—
+  y que un par alcanzable solo pivotando no cuente como instalado
+- **Los perfiles de texto** (`test_text_profiles`, `test_smoke`): el ida y
+  vuelta al JSON, los nombres que no valen, y que un archivo ilegible sea
+  «todavía no hay perfiles» en vez de una excepción
+- **La fontanería** (`test_smoke`, `test_modal_shell`): el troceo de rutas
+  del drag & drop, la precedencia de `resolve_box`, la geometría
+  compartida por los dos lienzos y el armazón del que salen los cuatro
+  modales. También que un modal solo diga «sí» por el botón que confirma
+  — cerrar la ventana o pulsar Escape es «no», y en una confirmación de
+  borrado eso no puede depender de la suerte
 
 `conftest.py` hace las dos cosas que ningún test puede hacer solo: una
 única raíz de Tk para toda la sesión —crear y destruir un `tk.Tk()` por

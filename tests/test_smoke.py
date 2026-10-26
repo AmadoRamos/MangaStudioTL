@@ -8,38 +8,9 @@ import time
 import tkinter as tk
 from pathlib import Path
 
-from src.utils.background_worker import BackgroundWorker
 from src.utils.marks_store import Mark, TranslationEntry
 from src.utils.text_profiles import STYLE_FIELDS, TextProfile
 from src.utils.text_renderer import RenderConfig, resolve_box
-
-
-def test_emit_dispatches_by_name(root: tk.Tk) -> None:
-    """``_emit`` must call the attribute named at *dispatch* time."""
-    seen: list[tuple] = []
-
-    class Worker(BackgroundWorker):
-        def __init__(self):
-            super().__init__()
-            self._on_done = None
-
-    w = Worker()
-    w.attach(root)
-    w._emit("_on_done", 1, True, "listo")   # queued before the callback exists
-    w._on_done = lambda *a: seen.append(a)
-    w._poll()
-    assert seen == [(1, True, "listo")], seen
-
-    # A missing callback is dropped, not raised.
-    w._emit("_on_nonexistent", 42)
-    w._poll()
-    assert seen == [(1, True, "listo")], seen
-
-    # detach() drops what is still queued.
-    w._emit("_on_done", 2, False, "tarde")
-    w.detach()
-    w._poll()
-    assert seen == [(1, True, "listo")], seen
 
 
 def test_drop_data_splitting(root: tk.Tk) -> None:
