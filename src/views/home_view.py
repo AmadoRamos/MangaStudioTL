@@ -231,15 +231,7 @@ class HomeView(tk.Frame):
             )
             return
 
-        # The download blocks the UI thread for a few hundred MB; say so
-        # before the window stops repainting.
-        if not theme.confirm(
-            self,
-            "Descargar par de idiomas",
-            f"Se descargará el modelo {pair} (~300 MB).\n"
-            "La ventana quedará sin responder hasta que termine.",
-            confirm_label="Descargar",
-        ):
+        if not theme.confirm_download(self, pair):
             return
         self.config(cursor="watch")
         self.update_idletasks()

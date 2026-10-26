@@ -1102,3 +1102,22 @@ def confirm(
         confirm_label=confirm_label,
         cancel_label=cancel_label,
     ).result
+
+
+def confirm_download(master: tk.Misc, pair: str) -> bool:
+    """Pide permiso para bajar un par de idiomas (~300 MB).
+
+    El paso 1 y el paso 3 ofrecen los dos la descarga, y la pregunta
+    tiene que ser la misma en ambos: la descarga corre en el hilo de la
+    interfaz, así que lo que hay que avisar —la ventana se queda sin
+    responder— es una propiedad de la descarga, no de la pantalla desde
+    la que se pidió. Lo que cada vista hace con el resultado sí es suyo:
+    una tiene barra de estado y la otra no (DESIGN.md §8).
+    """
+    return confirm(
+        master,
+        "Descargar par de idiomas",
+        f"Se descargará el modelo {pair} (~300 MB).\n"
+        "La ventana quedará sin responder hasta que termine.",
+        confirm_label="Descargar",
+    )

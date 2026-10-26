@@ -558,15 +558,7 @@ class OcrReviewView(tk.Frame):
             )
             return
 
-        # La descarga bloquea el hilo de la interfaz durante unos cientos
-        # de megas; decirlo antes de que la ventana deje de repintarse.
-        if not theme.confirm(
-            self,
-            "Descargar par de idiomas",
-            f"Se descargará el modelo {pair} (~300 MB).\n"
-            "La ventana quedará sin responder hasta que termine.",
-            confirm_label="Descargar",
-        ):
+        if not theme.confirm_download(self, pair):
             return
 
         self._status.set(f"Descargando el par {pair}…", "working")
