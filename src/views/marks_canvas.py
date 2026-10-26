@@ -105,9 +105,6 @@ class MarksCanvas(ZoomedCanvas):
         self._marks_visible = on
         self._render_overlay()
 
-    def set_color(self, color: str) -> None:
-        self._current_color = color
-
     def undo(self) -> Mark | None:
         if len(self._store) == 0:
             return None
