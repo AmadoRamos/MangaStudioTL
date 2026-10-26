@@ -452,18 +452,11 @@ class Sidebar(tk.Frame):
         self._footer_body.pack_forget()
         self._footer_rule.pack_forget()
 
-    def footer_button(self) -> tk.Button | None:
-        return self._footer_primary
-
     def set_footer_state(self, enabled: bool) -> None:
         if self._footer_primary is not None:
             self._footer_primary.configure(
                 state=tk.NORMAL if enabled else tk.DISABLED,
             )
-
-    def set_footer_text(self, text: str) -> None:
-        if self._footer_primary is not None:
-            self._footer_primary.configure(text=text)
 
     def set_footer_hint(self, text: str) -> None:
         if self._footer_hint is not None:
@@ -606,66 +599,6 @@ class Sidebar(tk.Frame):
             self._view_sections_frame, thickness=2, color=COLOR_DIVIDER,
         ).pack(side=tk.TOP, fill=tk.X, pady=(0, 12))
 
-    # --- legacy helpers, kept so older call sites keep working ------------
-
-    def make_section_header(
-        self,
-        title: str,
-        toggle_target: tk.Widget | None = None,
-        toggle_text_off: str = "▼",
-        toggle_text_on: str = "▲",
-    ) -> tuple[tk.Frame, tk.Label]:
-        container = tk.Frame(self._view_sections_frame, bg=SIDEBAR_BG)
-        top = tk.Frame(container, bg=SIDEBAR_BG)
-        top.pack(side=tk.TOP, fill=tk.X)
-        theme.kicker(top, title, bg=SIDEBAR_BG).pack(side=tk.LEFT)
-        indicator = tk.Label(
-            top, text="", font=theme.heading_font(9),
-            bg=SIDEBAR_BG, fg=NEUTRAL_600,
-        )
-        indicator.pack(side=tk.RIGHT)
-        return container, indicator
-
-    def make_section_body(self, parent: tk.Widget) -> tk.Frame:
-        body = tk.Frame(parent, bg=SIDEBAR_BG)
-        body.pack(side=tk.TOP, fill=tk.X, pady=(8, 12))
-        return body
-
-    def make_pill_button(
-        self,
-        parent: tk.Widget,
-        text: str,
-        tooltip: str,
-        command: Callable[[], None],
-        anchor: str = tk.W,
-        font: tuple | None = None,
-    ) -> tk.Button:
-        return theme.button(
-            parent, text, command,
-            variant="outline", tooltip=tooltip or None,
-            size=9, padx=9, pady=7, anchor=anchor,
-        )
-
-    def make_toggle_button(
-        self,
-        parent: tk.Widget,
-        text: str,
-        tooltip: str,
-        command: Callable[[], None],
-    ) -> tk.Button:
-        btn = self.make_pill_button(parent, text, tooltip, command)
-        btn._toggle_state = False  # type: ignore[attr-defined]
-
-        def on_click() -> None:
-            btn._toggle_state = not btn._toggle_state  # type: ignore[attr-defined]
-            theme.restyle_button(
-                btn, "ink" if btn._toggle_state else "secondary",  # type: ignore[attr-defined]
-            )
-            command()
-
-        btn.configure(command=on_click)
-        return btn
-
     # -------------------------------------------------------------- public
 
     def set_active(self, key: str | None) -> None:
@@ -678,15 +611,3 @@ class Sidebar(tk.Frame):
     def recent_label(self) -> str | None:
         return self._recent_label
 
-    def update_status(
-        self,
-        *,
-        ocr_available: bool,
-        ocr_status: str,
-        inpaint_available: bool,
-        inpaint_status: str,
-    ) -> None:
-        self._ocr_available = ocr_available
-        self._ocr_status = ocr_status
-        self._inpaint_available = inpaint_available
-        self._inpaint_status = inpaint_status

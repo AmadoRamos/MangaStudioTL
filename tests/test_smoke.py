@@ -137,9 +137,18 @@ def test_button_variants() -> None:
     from src.views.theme import _VARIANTS
 
     assert set(_VARIANTS) == {"primary", "ink", "outline", "ghost"}, _VARIANTS
+    # `restyle_button` recibe la variante como argumento, no como
+    # `variant=`, así que el primer patrón no la veía: ahí sobrevivió un
+    # «secondary» borrado del sistema hasta que alguien lo buscó a mano.
     for path in Path("src").rglob("*.py"):
-        for name in re.findall(r'variant="(\w+)"', path.read_text("utf-8")):
+        texto = path.read_text("utf-8")
+        for name in re.findall(r'variant="(\w+)"', texto):
             assert name in _VARIANTS, f"{path}: variante «{name}»"
+        for llamada in re.findall(
+            r'restyle_button\((.*?)\)', texto, re.S,
+        ):
+            for name in re.findall(r'"(\w+)"', llamada):
+                assert name in _VARIANTS, f"{path}: variante «{name}»"
 
 
 def test_tool_icons(root: tk.Tk) -> None:

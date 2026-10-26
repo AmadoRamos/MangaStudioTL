@@ -68,7 +68,6 @@ from __future__ import annotations
 import json
 import re
 import secrets
-import string
 import threading
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
@@ -479,13 +478,6 @@ class MarksStore:
         self._dirty = True
         self.save()
 
-    def clear_ocr_results(self) -> None:
-        if not self._ocr:
-            return
-        self._ocr.clear()
-        self._dirty = True
-        self.save()
-
     def get_ocr(self, mark_id: int) -> OcrEntry | None:
         return self._ocr.get(mark_id)
 
@@ -512,13 +504,6 @@ class MarksStore:
 
     def has_translation(self, mark_id: int) -> bool:
         return mark_id in self._translations
-
-    def clear_translations(self) -> None:
-        if not self._translations:
-            return
-        self._translations.clear()
-        self._dirty = True
-        self.save()
 
     def load(self) -> list[Mark]:
         path = sidecar_path(self.image_path)
@@ -646,7 +631,3 @@ class MarksStore:
             if 0 <= idx < len(self._marks):
                 valid[idx] = entry
         self._translations = valid
-
-    @staticmethod
-    def has_marks(image_path: Path) -> bool:
-        return sidecar_path(image_path).exists()

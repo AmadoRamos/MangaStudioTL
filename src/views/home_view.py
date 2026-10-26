@@ -55,10 +55,6 @@ class HomeView(tk.Frame):
             self._build_sidebar_sections()
         register_drop_target(self, self._handle_drop)
 
-    def set_workflow(self, workflow) -> None:
-        self.workflow = workflow
-        self._refresh_resume_callout()
-
     # ------------------------------------------------------------------
     # Content
     # ------------------------------------------------------------------

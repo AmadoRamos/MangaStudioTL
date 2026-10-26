@@ -178,10 +178,6 @@ class OcrEngine:
     # RapidOCR
     # ------------------------------------------------------------------
 
-    @staticmethod
-    def is_rapid_module_available() -> bool:
-        return _RAPID_AVAILABLE
-
     def rapid_available(self) -> bool:
         """True si RapidOCR carga. Los modelos ONNX viajan en el paquete."""
         if not _RAPID_AVAILABLE:
@@ -329,10 +325,6 @@ class OcrEngine:
         if not installed:
             return False
         return all(part.strip() in installed for part in lang.split("+") if part.strip())
-
-    def filter_languages(self, options: dict[str, str]) -> dict[str, str]:
-        """Return only the entries whose codes are installed."""
-        return {label: code for label, code in options.items() if self.is_language_available(code)}
 
     def recognize(
         self,

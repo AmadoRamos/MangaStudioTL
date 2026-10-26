@@ -104,15 +104,9 @@ class MarksCanvas(ZoomedCanvas):
         self._update_cursor()
         log.debug("Modo edicion -> %s", on)
 
-    def is_edit_mode(self) -> bool:
-        return self._edit_mode
-
     def set_marks_visible(self, on: bool) -> None:
         self._marks_visible = on
         self._render_overlay()
-
-    def is_marks_visible(self) -> bool:
-        return self._marks_visible
 
     def set_color(self, color: str) -> None:
         self._current_color = color
@@ -136,9 +130,6 @@ class MarksCanvas(ZoomedCanvas):
         self._render_overlay()
         self._notify_change()
 
-    def mark_count(self) -> int:
-        return len(self._store)
-
     def select(self, mark_id: int | None) -> None:
         if mark_id is not None and not 0 <= mark_id < len(self._store):
             mark_id = None
@@ -147,10 +138,6 @@ class MarksCanvas(ZoomedCanvas):
 
     def selected_mark_id(self) -> int | None:
         return self._selected_mark_id
-
-    def refresh_mark(self, mark_id: int) -> None:
-        if 0 <= mark_id < len(self._store):
-            self._render_overlay()
 
     # ------------------------------------------------------- overlay
 

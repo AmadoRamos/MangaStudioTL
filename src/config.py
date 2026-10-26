@@ -85,12 +85,6 @@ MARK_PADDING_MIN: int = 0
 MARK_PADDING_MAX: int = 100
 MARK_SIDECAR_SUFFIX: str = ".marks.json"
 
-OCR_LANGUAGES: dict[str, str] = {
-    "Español + Inglés": "spa+eng",
-    "Solo Español": "spa",
-    "Solo Inglés": "eng",
-}
-OCR_DEFAULT_LANG_LABEL: str = "Español + Inglés"
 OCR_MIN_CROP_HEIGHT: int = 30
 OCR_SCALE_FACTOR: float = 2.0
 OCR_TEMP_PREFIX: str = "visor_ocr_"
@@ -123,8 +117,6 @@ CLEAN_SUFFIX: str = ".clean.png"
 CLEAN_CACHE_PAGES: int = 4
 INPAINT_PADDING_PX: int = 12
 INPAINT_DEFAULT_PADDING: int = 64
-INPAINT_MIN_PADDING: int = 16
-INPAINT_MAX_PADDING: int = 256
 INPAINT_CLUSTER_GAP: int = 32
 
 #: Cuánto se engorda el trazo detectado antes de borrarlo. La máscara ya
@@ -168,9 +160,6 @@ INPAINT_MODELS: dict[str, str] = {"manga": "lama-manga.pt"}
 
 SIDEBAR_WIDTH: int = 260
 SIDEBAR_BG: str = COLOR_SURFACE
-SIDEBAR_ACTIVE_BG: str = COLOR_ACCENT
-SIDEBAR_FG: str = COLOR_TEXT
-SIDEBAR_SUBTLE_FG: str = NEUTRAL_600
 SIDEBAR_SECTION_PAD: int = 12
 SIDEBAR_VIEW_PAD: int = 12
 RECENT_PATHS_FILE: str = ".last_folder"
@@ -214,7 +203,6 @@ TEXT_RENDER_STROKE_COLOR: tuple[int, int, int] = (0xFF, 0xFF, 0xFF)
 TEXT_RENDER_STROKE_MAX_PX: int = 12
 
 # Default font configuration for the translator view.
-TEXT_RENDER_DEFAULT_FAMILY: str = "Segoe UI"
 TEXT_RENDER_FALLBACK_FAMILIES: tuple[str, ...] = (
     "Archivo Black",
     "Archivo",
