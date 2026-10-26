@@ -19,13 +19,12 @@ going while the chapter is translated and reports on the rail.
 
 from __future__ import annotations
 
-import math
 import time
 import tkinter as tk
 from pathlib import Path
 from dataclasses import replace
 
-from PIL import Image, ImageTk
+from PIL import Image
 
 from src.config import (
     ACCENT_200,
@@ -40,9 +39,6 @@ from src.config import (
     MARK_MIN_SIZE,
     MARK_PADDING_MAX,
     MARK_PADDING_MIN,
-    MARK_SELECTED_FILL,
-    MARK_SELECTED_STROKE_WIDTH,
-    MARK_STROKE_WIDTH,
     NEUTRAL_500,
     NEUTRAL_600,
     NEUTRAL_700,
@@ -64,16 +60,10 @@ from src.utils.marks_store import Mark, MarksStore
 from src.utils.ocr_engine import OcrEngine
 from src.utils.pipeline_runner import PipelineRunner
 from src.views import theme
-from src.views.marks_canvas import MARK_PAD_DASH, MarksCanvas
+from src.views.marks_canvas import MarksCanvas
+from src.views.strip_canvas import StripCanvas
 from src.views.toolbar import StatusBar, Tooltip
-from src.views.zoomed_canvas import (
-    MAX_EFFECTIVE_SCALE,
-    MIN_EFFECTIVE_SCALE,
-    TALL_PAGE_FIT_LIMIT,
-    WHEEL_PAN_STEP,
-    ZOOM_STEP,
-    resample_for,
-)
+from src.views.zoomed_canvas import WHEEL_PAN_STEP, ZOOM_STEP
 
 log = get_logger("marks_view")
 
@@ -149,25 +139,16 @@ class MarksView(tk.Frame):
         self._advance_after: bool = False
         self._log_lines: list[str] = []
 
-        # Strip (mode «Todas») rendering: pages laid out in strip
-        # coordinates at ``_strip_scale``, rasterised one viewport band
-        # at a time so the zoom ceiling costs canvas-sized bitmaps.
-        self._strip_scale: float = 1.0
-        self._notified_strip_scale: float = -1.0
-        self._strip_fit_pending: bool = True
-        self._strip_layout: list[tuple[float, float, int, int]] = []
-        self._strip_content: tuple[int, int] = (1, 1)
-        self._strip_photos: dict[int, ImageTk.PhotoImage] = {}
-        self._strip_photo_ids: dict[int, int] = {}
-        self._strip_draw_pending: bool = False
+        #: La cinta del modo «Todas», o None mientras se ve una página.
+        #: Se destruye y se vuelve a montar al cambiar de modo y al
+        #: encender «Limpia», así que su escala se guarda aparte para que
+        #: volver no reencaje el zoom que el usuario había puesto.
+        self._strip: StripCanvas | None = None
+        self._strip_scale: float | None = None
         self._expanded_pages: set[int] = {0}
-        self._mark_ids_by_image: list[list[int]] = [[] for _ in self._items]
         self._selected: tuple[int, int] | None = None
         self._hovered: tuple[int, int] | None = None
-        self._drag: dict | None = None
         self._marks_canvas: MarksCanvas | None = None
-        self._canvas = None
-        self._scrollbar = None
 
         # Rail widgets, rebuilt whenever the mode or the pipeline state
         # changes. The tool buttons below them are the exception: they
@@ -706,7 +687,7 @@ class MarksView(tk.Frame):
             ),
         )
         if changed:
-            self._render_all_marks()
+            self._refresh_strip_marks()
             self._update_continue_label()
         return changed
 
@@ -717,9 +698,10 @@ class MarksView(tk.Frame):
         mark_id = self._selected_mark_id()
         if mark_id is None:
             return
-        mark = self._stores[self._index].marks[mark_id]
-        _, sy = self._image_to_strip(self._index, mark.x, mark.y)
-        self._scroll_strip_to(sy)
+        if self._strip is not None:
+            self._strip.reveal_mark(
+                self._index, self._stores[self._index].marks[mark_id],
+            )
 
     def _refresh_inspector(self) -> None:
         """Geometry and delete for the selected box, rebuilt only on change."""
@@ -1190,7 +1172,7 @@ class MarksView(tk.Frame):
             removed = self._marks_canvas.delete_mark(mark_id)
         else:
             removed = store.remove_at(mark_id)
-            self._render_all_marks()
+            self._refresh_strip_marks()
         if removed is None:
             return
         self._selected = None
@@ -1309,18 +1291,17 @@ class MarksView(tk.Frame):
         self._refresh_inspector()
 
     def _teardown_canvas(self) -> None:
+        # La escala sobrevive al derribo: cambiar de modo o encender
+        # «Limpia» no es motivo para devolver el zoom al encaje.
+        if self._strip is not None:
+            self._strip_scale = self._strip.scale()
         for w in self._host.winfo_children():
             try:
                 w.destroy()
             except Exception:
                 pass
-        self._canvas = None
-        self._scrollbar = None
+        self._strip = None
         self._marks_canvas = None
-        self._strip_layout = []
-        self._strip_photos = {}
-        self._strip_photo_ids = {}
-        self._mark_ids_by_image = [[] for _ in self._items]
 
     def _build_single_canvas(self) -> None:
         self._marks_canvas = MarksCanvas(
@@ -1392,15 +1373,15 @@ class MarksView(tk.Frame):
         if self._marks_canvas is not None:
             self._marks_canvas.zoom_in()
             self._update_zoom_controls()
-        elif self._mode == MODE_ALL:
-            self._set_strip_scale(self._strip_scale * ZOOM_STEP)
+        elif self._strip is not None:
+            self._strip.zoom_by(ZOOM_STEP)
 
     def _on_zoom_out(self) -> None:
         if self._marks_canvas is not None:
             self._marks_canvas.zoom_out()
             self._update_zoom_controls()
-        elif self._mode == MODE_ALL:
-            self._set_strip_scale(self._strip_scale / ZOOM_STEP)
+        elif self._strip is not None:
+            self._strip.zoom_by(1.0 / ZOOM_STEP)
 
     def _on_zoom_reset(self) -> None:
         self._on_fit_window()
@@ -1424,8 +1405,8 @@ class MarksView(tk.Frame):
             else:
                 self._marks_canvas.fit_to_window()
             self._update_zoom_controls()
-        elif self._mode == MODE_ALL:
-            self._strip_fit(kind)
+        elif self._strip is not None:
+            self._strip.fit(kind)
 
     def _update_zoom_controls(self) -> None:
         """Keep the percentage honest and grey out the unreachable ends."""
@@ -1433,10 +1414,10 @@ class MarksView(tk.Frame):
             percent = self._marks_canvas.zoom_percent()
             can_in = self._marks_canvas.can_zoom_in()
             can_out = self._marks_canvas.can_zoom_out()
-        elif self._mode == MODE_ALL and self._canvas is not None:
-            percent = self._strip_zoom_percent()
-            can_in = self._strip_scale < MAX_EFFECTIVE_SCALE - 1e-4
-            can_out = self._strip_scale > MIN_EFFECTIVE_SCALE + 1e-4
+        elif self._mode == MODE_ALL and self._strip is not None:
+            percent = self._strip.zoom_percent()
+            can_in = self._strip.can_zoom_in()
+            can_out = self._strip.can_zoom_out()
         else:
             for key in ("out", "reset", "in"):
                 self._zoom_bar.set_enabled(key, False)
@@ -1456,46 +1437,53 @@ class MarksView(tk.Frame):
     # ------------------------------------------------------------------
 
     def _render_strip(self) -> None:
-        canvas_frame = tk.Frame(self._host, bg=CANVAS_BG)
-        canvas_frame.pack(side=tk.TOP, expand=True, fill=tk.BOTH)
-        self._canvas = tk.Canvas(
-            canvas_frame, bg=CANVAS_BG, highlightthickness=0, bd=0,
+        self._strip = StripCanvas(
+            self._host,
+            items_count=len(self._items),
+            stores=self._stores,
+            source=self._strip_source,
+            size=self._strip_size,
+            scale=self._strip_scale,
+            color=self._current_color,
+            on_select=lambda page, mark_id: self._set_selected(
+                page, mark_id, reveal=False,
+            ),
+            on_activate=lambda page: self._set_active_image(page, scroll=False),
+            on_mark_added=self._on_strip_mark_added,
+            on_hover=self._on_strip_hover,
+            on_scale_change=self._update_zoom_controls,
         )
-        self._scrollbar = tk.Scrollbar(
-            canvas_frame, orient=tk.VERTICAL, command=self._canvas.yview,
-        )
-        # Every scroll — wheel, scrollbar, drag, programmatic — arrives
-        # here, which is what tells the strip to re-rasterise its band.
-        self._canvas.configure(
-            yscrollcommand=self._on_strip_yscroll,
-            xscrollcommand=self._on_strip_xscroll,
-        )
-        self._scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self._canvas.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
-        self._canvas.bind("<ButtonPress-1>", self._strip_press)
-        self._canvas.bind("<B1-Motion>", self._strip_drag)
-        self._canvas.bind("<ButtonRelease-1>", self._strip_release)
-        self._canvas.bind("<Motion>", self._strip_motion)
-        self._canvas.bind("<Button-3>", self._strip_right)
-        self._canvas.bind("<Shift-ButtonPress-1>", self._strip_pan_press)
-        self._canvas.bind("<Shift-B1-Motion>", self._strip_pan_drag)
-        self._canvas.bind("<Shift-ButtonRelease-1>", self._strip_pan_release)
-        self._canvas.bind("<ButtonPress-2>", self._strip_pan_press)
-        self._canvas.bind("<B2-Motion>", self._strip_pan_drag)
-        self._canvas.bind("<ButtonRelease-2>", self._strip_pan_release)
-        self._canvas.bind("<Control-MouseWheel>", self._strip_ctrl_wheel)
-        self._canvas.bind("<Configure>", self._strip_configure)
-
+        self._strip.pack(side=tk.TOP, expand=True, fill=tk.BOTH)
+        self._strip.set_marks_visible(self._marks_visible)
+        self._strip.set_viewing_clean(self._viewing_clean)
+        self._strip.set_edit_mode(self._edit_state)
+        self._strip.select(self._selected)
         self._marks_canvas = None
-        self._strip_photos = {}
-        self._strip_photo_ids = {}
-        self._mark_ids_by_image = [[] for _ in self._items]
-
-        self._layout_strip()
-        self._draw_strip()
+        self._strip.render()
         self._status.set(
             f"{len(self._items)} página(s) · desplázate para recorrerlas", "info",
         )
+
+    def _on_strip_mark_added(self, page: int, mark_id: int) -> None:
+        """Un rectángulo recién dibujado sobre la cinta."""
+        self._set_active_image(page, scroll=False)
+        self._set_selected(page, mark_id, reveal=False)
+        self._update_continue_label()
+        self._refresh_marks_list()
+
+    def _on_strip_hover(self, key: tuple[int, int] | None) -> None:
+        self._hovered = key
+
+    def _refresh_strip_marks(self) -> None:
+        """Repintar el overlay de la cinta, si es la que está montada.
+
+        Le pasa la selección en vez de dejar que la cinta se la guarde
+        por su cuenta: la verdad de quién está seleccionado vive aquí —el
+        riel y el inspector la leen— y una copia en el widget se queda
+        vieja en cuanto alguien borra una marca.
+        """
+        if self._strip is not None:
+            self._strip.select(self._selected)
 
     # --- strip geometry -------------------------------------------------
 
@@ -1563,326 +1551,6 @@ class MarksView(tk.Frame):
             log.warning("No se pudo leer el tamaño de %s: %s", cp, exc)
             return None
 
-    def _strip_max_size(self) -> tuple[int, int]:
-        """Widest and tallest page, in real pixels."""
-        max_w = max_h = 1
-        for idx in range(len(self._items)):
-            w, h = self._strip_size(idx)
-            max_w = max(max_w, w)
-            max_h = max(max_h, h)
-        return max_w, max_h
-
-    def _clamp_strip_scale(self, scale: float) -> float:
-        return max(MIN_EFFECTIVE_SCALE, min(MAX_EFFECTIVE_SCALE, scale))
-
-    def _layout_strip(self) -> None:
-        """Place every page in strip coordinates at the current scale.
-
-        Pages are centred on the widest one so a chapter that mixes
-        portrait scans with a wide spread reads down a single axis —
-        the single-page view has always centred, and the strip looked
-        broken next to it.
-        """
-        if self._canvas is None or not self._items:
-            self._strip_layout = []
-            self._strip_content = (1, 1)
-            return
-        cw = max(self._canvas.winfo_width(), 1)
-        ch = max(self._canvas.winfo_height(), 1)
-        max_w, max_h = self._strip_max_size()
-
-        if self._strip_fit_pending and cw > 1 and ch > 1:
-            self._strip_fit_pending = False
-            window = min(cw / max_w, ch / max_h, 1.0)
-            # A webtoon strip fitted whole is an unreadable sliver, so
-            # open on the width instead — same rule as a single page.
-            self._strip_scale = (
-                cw / max_w if window < TALL_PAGE_FIT_LIMIT else window
-            )
-        self._strip_scale = self._clamp_strip_scale(self._strip_scale)
-        scale = self._strip_scale
-
-        content_w = max(cw, int(round(max_w * scale)))
-        layout: list[tuple[float, float, int, int]] = []
-        y = 0.0
-        for idx in range(len(self._items)):
-            iw, ih = self._strip_size(idx)
-            sw = max(1, int(round(iw * scale)))
-            sh = max(1, int(round(ih * scale)))
-            layout.append(((content_w - sw) / 2.0, y, sw, sh))
-            y += sh
-        self._strip_layout = layout
-        self._strip_content = (content_w, max(1, int(round(y))))
-        self._canvas.configure(scrollregion=(0, 0, content_w, self._strip_content[1]))
-
-        # The opening fit is only decided once the canvas has a real
-        # size, well after the toolbar was first drawn — without this the
-        # strip would keep reporting the placeholder 100 %.
-        if abs(scale - self._notified_strip_scale) > 1e-6:
-            self._notified_strip_scale = scale
-            self._update_zoom_controls()
-
-    def _visible_band(self) -> tuple[float, float, float, float]:
-        """Lo que la ventana de la cinta abarca: left, top, right, bottom.
-
-        En coordenadas de la cinta, que es donde está el layout. La usan
-        el rasterizado y el overlay de marcas: los dos tienen que
-        recortar por lo mismo, y con la cuenta escrita dos veces solo uno
-        de ellos lo hacía.
-        """
-        cw = max(self._canvas.winfo_width(), 1)
-        ch = max(self._canvas.winfo_height(), 1)
-        top = self._canvas.canvasy(0)
-        left = self._canvas.canvasx(0)
-        return left, top, left + cw, top + ch
-
-    def _draw_strip(self, *, fast: bool = False) -> None:
-        """Rasterise only the band of the strip the canvas can show.
-
-        A chapter of webtoon strips is hundreds of megapixels; scaling
-        it whole would be gigabytes of bitmap for the two page slices
-        actually on screen.
-        """
-        if self._canvas is None or not self._strip_layout:
-            return
-        left, top, right, bottom = self._visible_band()
-        scale = self._strip_scale
-        visible: set[int] = set()
-
-        for idx, (x0, y0, sw, sh) in enumerate(self._strip_layout):
-            vx0, vy0 = max(x0, left), max(y0, top)
-            vx1, vy1 = min(x0 + sw, right), min(y0 + sh, bottom)
-            if vx1 <= vx0 or vy1 <= vy0:
-                continue
-            src = self._strip_source(idx)
-            iw, ih = src.size
-            sx0 = max(0, int(math.floor((vx0 - x0) / scale)))
-            sy0 = max(0, int(math.floor((vy0 - y0) / scale)))
-            sx1 = min(iw, int(math.ceil((vx1 - x0) / scale)))
-            sy1 = min(ih, int(math.ceil((vy1 - y0) / scale)))
-            if sx1 <= sx0 or sy1 <= sy0:
-                continue
-            try:
-                crop = src.crop((sx0, sy0, sx1, sy1))
-                target = (
-                    max(1, int(round((sx1 - sx0) * scale))),
-                    max(1, int(round((sy1 - sy0) * scale))),
-                )
-                if target != crop.size:
-                    crop = crop.resize(target, resample_for(scale, fast))
-                photo = ImageTk.PhotoImage(crop)
-            except Exception as exc:
-                log.exception("Error rasterizando página %d: %s", idx, exc)
-                continue
-            self._strip_photos[idx] = photo
-            px, py = x0 + sx0 * scale, y0 + sy0 * scale
-            item = self._strip_photo_ids.get(idx)
-            if item is None:
-                item = self._canvas.create_image(
-                    px, py, image=photo, anchor=tk.NW, tags=("page",),
-                )
-                self._strip_photo_ids[idx] = item
-            else:
-                self._canvas.itemconfigure(item, image=photo)
-                self._canvas.coords(item, px, py)
-            self._canvas.tag_lower(item)
-            visible.add(idx)
-
-        for idx in [i for i in self._strip_photo_ids if i not in visible]:
-            self._canvas.delete(self._strip_photo_ids.pop(idx))
-            self._strip_photos.pop(idx, None)
-        self._render_all_marks()
-
-    def _on_strip_yscroll(self, first: str, last: str) -> None:
-        if self._scrollbar is not None:
-            self._scrollbar.set(first, last)
-        self._schedule_strip_draw()
-
-    def _on_strip_xscroll(self, _first: str, _last: str) -> None:
-        self._schedule_strip_draw()
-
-    def _schedule_strip_draw(self) -> None:
-        """Coalesce the redraws a single wheel notch can trigger."""
-        if self._strip_draw_pending or self._mode != MODE_ALL:
-            return
-        self._strip_draw_pending = True
-        self.after_idle(self._strip_draw_now)
-
-    def _strip_draw_now(self) -> None:
-        self._strip_draw_pending = False
-        if self._mode == MODE_ALL and self._canvas is not None:
-            try:
-                self._draw_strip()
-            except tk.TclError:
-                pass
-
-    def _strip_configure(self, _event: tk.Event) -> None:
-        # Laying out is cheap (page sizes only); rasterising is not, so
-        # that half waits for the resize drag to stop producing events.
-        self._layout_strip()
-        self._schedule_strip_draw()
-
-    def _total_strip_height(self) -> int:
-        return self._strip_content[1]
-
-    # --- strip zoom ------------------------------------------------------
-
-    def _strip_zoom_percent(self) -> int:
-        return max(1, int(round(self._strip_scale * 100)))
-
-    def _set_strip_scale(
-        self, scale: float, *, focus: tuple[int, int] | None = None,
-    ) -> None:
-        """Change the strip's scale, holding a point of the page still.
-
-        ``focus`` is a canvas pixel (the cursor for Ctrl+wheel, the
-        middle of the view for the ± buttons).
-        """
-        if self._canvas is None:
-            return
-        scale = self._clamp_strip_scale(scale)
-        old = self._strip_scale
-        if abs(scale - old) < 1e-6 or old <= 0:
-            return
-        cw = max(self._canvas.winfo_width(), 1)
-        ch = max(self._canvas.winfo_height(), 1)
-        fx, fy = focus if focus is not None else (cw // 2, ch // 2)
-        # Where the anchor sits in unscaled strip units.
-        anchor_y = self._canvas.canvasy(fy) / old
-        anchor_x = self._canvas.canvasx(fx) / old
-
-        self._strip_scale = scale
-        self._strip_fit_pending = False
-        self._layout_strip()
-        content_w, content_h = self._strip_content
-        self._canvas.yview_moveto(
-            max(0.0, anchor_y * scale - fy) / max(1, content_h),
-        )
-        self._canvas.xview_moveto(
-            max(0.0, anchor_x * scale - fx) / max(1, content_w),
-        )
-        self._draw_strip()
-        self._update_zoom_controls()
-
-    def _strip_fit(self, kind: str) -> None:
-        if self._canvas is None:
-            return
-        cw = max(self._canvas.winfo_width(), 1)
-        ch = max(self._canvas.winfo_height(), 1)
-        max_w, max_h = self._strip_max_size()
-        if kind == "width":
-            target = cw / max_w
-        elif kind == "height":
-            target = ch / max_h
-        else:
-            target = min(cw / max_w, ch / max_h, 1.0)
-        self._set_strip_scale(target)
-
-    def _strip_ctrl_wheel(self, event: tk.Event) -> str:
-        step = ZOOM_STEP if event.delta > 0 else 1.0 / ZOOM_STEP
-        self._set_strip_scale(
-            self._strip_scale * step, focus=(event.x, event.y),
-        )
-        return "break"
-
-    # --- strip coordinates ----------------------------------------------
-
-    def _overlay_pages(self) -> list[int]:
-        """Las páginas cuyas marcas hay que dibujar: las que se ven.
-
-        `_draw_strip` rasteriza solo la banda visible, y esto recorría el
-        capítulo entero: en 40 páginas con 15 globos eran ~600 items de
-        canvas destruidos y recreados en cada notch de rueda, el 95 %
-        fuera de pantalla. La seleccionada entra siempre aunque no se
-        vea, porque su recuadro de borrado se sale de la página y es la
-        única que dibuja uno.
-        """
-        left, top, right, bottom = self._visible_band()
-        paginas = [
-            idx for idx, (x0, y0, sw, sh) in enumerate(self._strip_layout)
-            if x0 < right and x0 + sw > left and y0 < bottom and y0 + sh > top
-        ]
-        if self._selected is not None:
-            elegida = self._selected[0]
-            if elegida not in paginas and 0 <= elegida < len(self._strip_layout):
-                paginas.append(elegida)
-        return paginas
-
-    def _render_all_marks(self) -> None:
-        for ids in self._mark_ids_by_image:
-            for mid in ids:
-                self._canvas.delete(mid)
-        self._mark_ids_by_image = [[] for _ in self._items]
-        if not self._marks_visible or self._viewing_clean:
-            return
-        for img_idx in self._overlay_pages():
-            for mark_id, mark in enumerate(self._stores[img_idx]):
-                is_selected = self._selected == (img_idx, mark_id)
-                outline = COLOR_ACCENT if is_selected else mark.color
-                width = (
-                    MARK_SELECTED_STROKE_WIDTH if is_selected
-                    else MARK_STROKE_WIDTH
-                )
-                x1, y1 = self._image_to_strip(img_idx, mark.x, mark.y)
-                x2, y2 = self._image_to_strip(
-                    img_idx, mark.x + mark.w, mark.y + mark.h,
-                )
-                if is_selected:
-                    # The erased area, on the selection only — see the
-                    # canvas for why it is not drawn on every mark.
-                    pad = mark.erase_padding
-                    px1, py1 = self._image_to_strip(
-                        img_idx, mark.x - pad, mark.y - pad,
-                    )
-                    px2, py2 = self._image_to_strip(
-                        img_idx, mark.x + mark.w + pad, mark.y + mark.h + pad,
-                    )
-                    # Only tracked for deletion; a click is answered by
-                    # `_hit_test_mark`, which works off the geometry and
-                    # not off the canvas items.
-                    self._mark_ids_by_image[img_idx].append(
-                        self._canvas.create_rectangle(
-                            px1, py1, px2, py2,
-                            outline=outline, width=1, fill="",
-                            dash=MARK_PAD_DASH,
-                            tags=("pad", f"img_{img_idx}", f"pad_{mark_id}"),
-                        ),
-                    )
-                rid = self._canvas.create_rectangle(
-                    x1, y1, x2, y2,
-                    outline=outline, width=width,
-                    fill=MARK_SELECTED_FILL if is_selected else "",
-                    tags=("mark", f"img_{img_idx}", f"mark_{mark_id}"),
-                )
-                self._mark_ids_by_image[img_idx].append(rid)
-
-    def _image_to_strip(self, img_idx: int, x: float, y: float) -> tuple[float, float]:
-        if not 0 <= img_idx < len(self._strip_layout):
-            return 0.0, 0.0
-        x0, y0, _, _ = self._strip_layout[img_idx]
-        return x0 + x * self._strip_scale, y0 + y * self._strip_scale
-
-    def _strip_to_image(
-        self, sx: float, sy: float, img_idx: int | None = None,
-    ) -> tuple[int, int, int] | None:
-        """Map strip coordinates to ``(page, x, y)`` in real image pixels.
-
-        With ``img_idx`` given the point is clamped into that page, which
-        is what a drag that started on it should do even once the pointer
-        wanders onto the neighbour.
-        """
-        if img_idx is None:
-            img_idx = self._hit_test_image(sy)
-            if img_idx is None:
-                return None
-        if not 0 <= img_idx < len(self._strip_layout):
-            return None
-        x0, y0, _, _ = self._strip_layout[img_idx]
-        iw, ih = self._strip_size(img_idx)
-        ix = int(round((sx - x0) / self._strip_scale))
-        iy = int(round((sy - y0) / self._strip_scale))
-        return img_idx, max(0, min(ix, iw)), max(0, min(iy, ih))
-
     def _mousewheel(self, event: tk.Event) -> None:
         """La rueda de los dos modos, porque los dos llegan aquí.
 
@@ -1898,12 +1566,12 @@ class MarksView(tk.Frame):
         que no está dicho que el enganche del lienzo llegue a ejecutarse.
         Si llega, devolvió «break» y esto ni se ejecuta.
         """
-        if self._drag is not None:
+        if self._strip is not None and self._strip.is_drawing():
             return
         up = event.delta > 0
         if self._mode == MODE_ALL:
-            if self._canvas is not None:
-                self._canvas.yview_scroll(-1 if up else 1, "units")
+            if self._strip is not None:
+                self._strip.scroll_lines(-1 if up else 1)
             return
         canvas = self._marks_canvas
         if canvas is None:
@@ -1915,112 +1583,6 @@ class MarksView(tk.Frame):
             self._on_prev()
         else:
             self._on_next()
-
-    def _hit_test_image(self, strip_y: float) -> int | None:
-        for idx, (_, y0, _, sh) in enumerate(self._strip_layout):
-            if y0 <= strip_y < y0 + sh:
-                return idx
-        return None
-
-    def _hit_test_mark(self, sx: float, sy: float) -> tuple[int, int] | None:
-        located = self._strip_to_image(sx, sy)
-        if located is None:
-            return None
-        img_idx, ix, iy = located
-        for mark_id, mark in enumerate(self._stores[img_idx]):
-            if mark.x <= ix <= mark.x + mark.w and mark.y <= iy <= mark.y + mark.h:
-                return (img_idx, mark_id)
-        return None
-
-    def _strip_press(self, event: tk.Event) -> None:
-        if self._viewing_clean:
-            return
-        sx = self._canvas.canvasx(event.x)
-        sy = self._canvas.canvasy(event.y)
-        if self._edit_state:
-            located = self._strip_to_image(sx, sy)
-            if located is None:
-                return
-            idx = located[0]
-            self._set_active_image(idx, scroll=False)
-            preview = self._canvas.create_rectangle(
-                sx, sy, sx, sy,
-                outline=self._current_color,
-                width=MARK_STROKE_WIDTH, dash=(4, 2),
-                tags=("preview",),
-            )
-            self._drag = {
-                "image_index": idx,
-                "start_x": sx, "start_y": sy,
-                "preview_id": preview,
-            }
-            return
-        clicked = self._hit_test_mark(sx, sy)
-        if clicked is not None:
-            self._set_selected(*clicked, reveal=False)
-        else:
-            located = self._strip_to_image(sx, sy)
-            if located is not None:
-                self._set_active_image(located[0], scroll=False)
-
-    def _strip_drag(self, event: tk.Event) -> None:
-        if self._drag is None:
-            return
-        self._canvas.coords(
-            self._drag["preview_id"],
-            self._drag["start_x"], self._drag["start_y"],
-            self._canvas.canvasx(event.x), self._canvas.canvasy(event.y),
-        )
-
-    def _strip_release(self, event: tk.Event) -> None:
-        if self._drag is None:
-            return
-        idx = self._drag["image_index"]
-        self._canvas.delete(self._drag["preview_id"])
-        start = (self._drag["start_x"], self._drag["start_y"])
-        self._drag = None
-
-        begin = self._strip_to_image(start[0], start[1], idx)
-        end = self._strip_to_image(
-            self._canvas.canvasx(event.x), self._canvas.canvasy(event.y), idx,
-        )
-        if begin is None or end is None:
-            return
-        x1, x2 = sorted((begin[1], end[1]))
-        y1, y2 = sorted((begin[2], end[2]))
-        if x2 - x1 < MARK_MIN_SIZE or y2 - y1 < MARK_MIN_SIZE:
-            return
-        mark = Mark(
-            x=x1, y=y1, w=x2 - x1, h=y2 - y1, color=self._current_color,
-        )
-        mark_id = self._stores[idx].add(mark)
-        self._set_active_image(idx, scroll=False)
-        self._set_selected(idx, mark_id, reveal=False)
-        self._render_all_marks()
-        self._update_continue_label()
-        self._refresh_marks_list()
-
-    def _strip_motion(self, event: tk.Event) -> None:
-        self._hovered = self._hit_test_mark(
-            self._canvas.canvasx(event.x), self._canvas.canvasy(event.y),
-        )
-
-    def _strip_right(self, _event: tk.Event) -> None:
-        if not self._edit_state:
-            return
-        if self._drag is not None:
-            self._canvas.delete(self._drag["preview_id"])
-            self._drag = None
-
-    def _strip_pan_press(self, event: tk.Event) -> None:
-        self._canvas.scan_mark(event.x, event.y)
-
-    def _strip_pan_drag(self, event: tk.Event) -> None:
-        self._canvas.scan_dragto(event.x, event.y, gain=1)
-        self._schedule_strip_draw()
-
-    def _strip_pan_release(self, _event: tk.Event) -> None:
-        self._schedule_strip_draw()
 
     # ------------------------------------------------------------------
     # Selection / edit / visibility / undo
@@ -2057,8 +1619,8 @@ class MarksView(tk.Frame):
         # In strip mode the pages are one long scroll, so picking one
         # from the rail has to take the view there — but a click *on* a
         # page is already there and must not jump to its top.
-        if scroll:
-            self._scroll_strip_to_page(img_idx)
+        if scroll and self._strip is not None:
+            self._strip.scroll_to_page(img_idx)
         if changed:
             self._refresh_marks_list()
             self._refresh_inspector()
@@ -2084,37 +1646,11 @@ class MarksView(tk.Frame):
                 if reveal:
                     self._marks_canvas.reveal_selected()
         else:
-            self._render_all_marks()
+            self._refresh_strip_marks()
             if reveal:
                 self._reveal_selection()
         self._refresh_marks_list()
         self._refresh_inspector()
-
-    def _scroll_strip_to_page(self, img_idx: int) -> None:
-        if not self._strip_layout or not 0 <= img_idx < len(self._strip_layout):
-            return
-        self._scroll_strip_to(self._strip_layout[img_idx][1], force=True)
-
-    def _scroll_strip_to(
-        self, y: float, *, margin: int = 40, force: bool = False,
-    ) -> None:
-        """Put strip coordinate ``y`` near the top of the visible band.
-
-        Unless ``force``, a point already comfortably on screen is left
-        where it is — revealing a mark should not shuffle the page under
-        someone who can already see it.
-        """
-        if self._canvas is None:
-            return
-        total = self._total_strip_height()
-        if total <= 0:
-            return
-        if not force:
-            top = self._canvas.canvasy(0)
-            bottom = top + self._canvas.winfo_height()
-            if top + margin <= y <= bottom - margin:
-                return
-        self._canvas.yview_moveto(max(0.0, (y - margin) / total))
 
     def _set_edit(self, on: bool) -> None:
         """El único sitio que enciende o apaga el modo de dibujo.
@@ -2126,11 +1662,8 @@ class MarksView(tk.Frame):
         self._edit_state = on
         if self._marks_canvas is not None:
             self._marks_canvas.set_edit_mode(on)
-        if self._canvas is not None:
-            try:
-                self._canvas.configure(cursor="crosshair" if on else "")
-            except Exception:
-                pass
+        if self._strip is not None:
+            self._strip.set_edit_mode(on)
         if self._edit_btn is not None:
             # Encendido = icono en acento, no caja rellena: el rojo ya es
             # el color de «esto está activo» en toda la app.
@@ -2146,8 +1679,8 @@ class MarksView(tk.Frame):
         self._marks_visible = not self._marks_visible
         if self._marks_canvas is not None:
             self._marks_canvas.set_marks_visible(self._marks_visible)
-        if self._mode == MODE_ALL:
-            self._render_all_marks()
+        if self._strip is not None:
+            self._strip.set_marks_visible(self._marks_visible)
         if self._visibility_btn is not None:
             theme.set_icon(
                 self._visibility_btn,
@@ -2174,7 +1707,7 @@ class MarksView(tk.Frame):
                 self._stores[idx].remove_last()
                 if self._selected and self._selected[0] == idx:
                     self._selected = None
-                self._render_all_marks()
+                self._refresh_strip_marks()
                 self._update_continue_label()
                 self._refresh_marks_list()
                 return
@@ -2196,7 +1729,7 @@ class MarksView(tk.Frame):
             self._marks_canvas.clear()
         else:
             self._stores[target_idx].clear()
-            self._render_all_marks()
+            self._refresh_strip_marks()
         self._selected = None
         self._update_continue_label()
         self._refresh_marks_list()
@@ -2236,9 +1769,9 @@ class MarksView(tk.Frame):
             if self._marks_canvas is None:
                 return None
             return self._marks_canvas.viewport()
-        if self._canvas is None:
+        if self._strip is None:
             return None
-        return float(self._canvas.canvasx(0)), float(self._canvas.canvasy(0))
+        return self._strip.viewport()
 
     def _restore_view(self, state: object) -> None:
         if state is None:
@@ -2247,19 +1780,9 @@ class MarksView(tk.Frame):
             if self._marks_canvas is not None:
                 self._marks_canvas.set_viewport(state)  # type: ignore[arg-type]
             return
-        if self._canvas is None:
+        if self._strip is None:
             return
-        # The strip canvas was only just created, so its scrollregion is
-        # still the placeholder one until the geometry manager has run.
-        try:
-            self._host.update_idletasks()
-        except tk.TclError:
-            return
-        x, y = state  # type: ignore[misc]
-        width, height = self._strip_content
-        self._canvas.xview_moveto(max(0.0, min(1.0, x / max(width, 1))))
-        self._canvas.yview_moveto(max(0.0, min(1.0, y / max(height, 1))))
-        self._schedule_strip_draw()
+        self._strip.set_viewport(state)  # type: ignore[arg-type]
 
     def _refresh_clean_availability(self) -> None:
         for idx, (path, _) in enumerate(self._items):

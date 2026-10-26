@@ -225,9 +225,13 @@ def test_marks_wheel() -> None:
     class Strip:
         def __init__(self) -> None:
             self.scrolled: list[int] = []
+            self.drawing = False
 
-        def yview_scroll(self, amount: int, _what: str) -> None:
-            self.scrolled.append(amount)
+        def scroll_lines(self, lines: int) -> None:
+            self.scrolled.append(lines)
+
+        def is_drawing(self) -> bool:
+            return self.drawing
 
     class Page:
         def __init__(self, pannable: bool) -> None:
@@ -241,7 +245,6 @@ def test_marks_wheel() -> None:
             self.panned.append(dy)
 
     view = MarksView.__new__(MarksView)
-    view._drag = None
     view._items = [object(), object(), object()]
     view._index = 1
     view._selected = None
@@ -250,19 +253,19 @@ def test_marks_wheel() -> None:
     # «Todas»: la rueda recorre la tira…
     view._mode = MODE_ALL
     view._marks_canvas = None
-    strip = view._canvas = Strip()
+    strip = view._strip = Strip()
     view._mousewheel(Event(120))
     assert strip.scrolled == [-1], strip.scrolled
 
     # …salvo en medio de un arrastre, que es lo único que la para.
-    view._drag = {"preview_id": 1}
+    strip.drawing = True
     view._mousewheel(Event(120))
     assert strip.scrolled == [-1], "el arrastre no bloqueó la rueda"
-    view._drag = None
+    strip.drawing = False
 
     # «Una» con la página ampliada: desplaza y no cambia de página.
     view._mode = MODE_ONE
-    view._canvas = None
+    view._strip = None
     page = view._marks_canvas = Page(pannable=True)
     view._mousewheel(Event(-120))
     assert page.panned and view._index == 1, (page.panned, view._index)

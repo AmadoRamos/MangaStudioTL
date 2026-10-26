@@ -436,6 +436,9 @@ Tres reglas que valen para los cuatro pasos:
         ├── marks_view.py          Paso 2 + dock de herramientas a la
         │                           derecha (unifica Manga + Webcomic)
         ├── marks_canvas.py        Canvas de marcas (hereda de ZoomedCanvas)
+        ├── strip_canvas.py        La cinta del paso 2: el capítulo entero
+        │                           en un eje, rasterizando solo la banda
+        │                           visible
         ├── ocr_review_view.py     Paso 3
         ├── translation_table.py   Tabla del capítulo con edición en celda
         ├── render_view.py         Paso 4 + informe de exportación
