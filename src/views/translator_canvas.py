@@ -29,11 +29,9 @@ from dataclasses import replace
 
 from src.config import (
     COLOR_ACCENT,
-    COLOR_BG,
     COLOR_TEXT,
     MARK_MIN_SIZE,
     NEUTRAL_500,
-    SUCCESS_COLOR,
 )
 from src.utils.logger import get_logger
 from src.utils.marks_store import MarksStore
@@ -48,11 +46,9 @@ from src.utils.text_renderer import (
 )
 from src.views import theme
 from src.views.zoomed_canvas import (
-    HANDLE_SIZE,
     HANDLES,
     Rect,
     ZoomedCanvas,
-    handle_centers,
     move_rect,
     resize_rect,
 )
@@ -164,7 +160,6 @@ class TranslatorCanvas(ZoomedCanvas):
         self._on_text_edited = on_text_edited
 
         self._box_canvas_ids: dict[int, list[int]] = {}
-        self._handle_ids: dict[str, int] = {}
         self._transform: dict | None = None
         self._editor: tk.Text | None = None
         self._editor_mark_id: int | None = None
@@ -302,7 +297,7 @@ class TranslatorCanvas(ZoomedCanvas):
         # Once the box has been dragged off its mark, the frame no longer
         # says where the globo was. Show it on the selection, dashed, so
         # there is something to place against.
-        rect = self._selected_rect()
+        rect = self._selection_rect()
         if rect is not None and self._selected_mark_id is not None:
             mark = self._store.marks[self._selected_mark_id]
             if rect != (mark.x, mark.y, mark.w, mark.h):
@@ -380,61 +375,15 @@ class TranslatorCanvas(ZoomedCanvas):
 
     # ------------------------------------------------- move / resize
 
-    def _selected_rect(self) -> Rect | None:
+    def _selection_rect(self) -> Rect | None:
+        """El cuadro de texto de la sección elegida, no su marca.
+
+        Una vez arrastrado el texto fuera del globo, lo que se agarra es
+        el cuadro donde está, que es también lo que `_hit_test` mira.
+        """
         if self._selected_mark_id is None:
             return None
         return self._rect_of(self._selected_mark_id)
-
-    def _handle_centers(self, rect: Rect) -> dict[str, tuple[float, float]]:
-        x, y, w, h = rect
-        x1, y1 = self.image_to_canvas(x, y)
-        x2, y2 = self.image_to_canvas(x + w, y + h)
-        return handle_centers(x1, y1, x2, y2)
-
-    def _clear_handles(self) -> None:
-        for hid in self._handle_ids.values():
-            self._canvas.delete(hid)
-        self._handle_ids = {}
-
-    def _draw_handles(self) -> None:
-        """Eight grips on the selected box — the affordance for resizing."""
-        rect = self._selected_rect()
-        if rect is None:
-            return
-        half = HANDLE_SIZE / 2
-        for anchor, (cx, cy) in self._handle_centers(rect).items():
-            self._handle_ids[anchor] = self._canvas.create_rectangle(
-                cx - half, cy - half, cx + half, cy + half,
-                outline=SUCCESS_COLOR, fill=COLOR_BG, width=2,
-            )
-
-    def _move_handles(self, rect: Rect) -> None:
-        half = HANDLE_SIZE / 2
-        for anchor, (cx, cy) in self._handle_centers(rect).items():
-            hid = self._handle_ids.get(anchor)
-            if hid is not None:
-                self._canvas.coords(
-                    hid, cx - half, cy - half, cx + half, cy + half,
-                )
-
-    def _hit_test_handle(self, cx: float, cy: float) -> str | None:
-        rect = self._selected_rect()
-        if rect is None:
-            return None
-        # A little larger than the drawn grip, so it is not fiddly.
-        for anchor, (hx, hy) in self._handle_centers(rect).items():
-            if abs(cx - hx) <= HANDLE_SIZE and abs(cy - hy) <= HANDLE_SIZE:
-                return anchor
-        return None
-
-    def _inside_selection(self, cx: float, cy: float) -> bool:
-        rect = self._selected_rect()
-        if rect is None:
-            return False
-        x, y, w, h = rect
-        x1, y1 = self.image_to_canvas(x, y)
-        x2, y2 = self.image_to_canvas(x + w, y + h)
-        return x1 <= cx <= x2 and y1 <= cy <= y2
 
     def _on_motion(self, event: tk.Event) -> None:
         """Say what a drag would do before the user commits to it."""
@@ -457,7 +406,7 @@ class TranslatorCanvas(ZoomedCanvas):
         # Acting on the current selection wins over picking another box:
         # the grips are only drawn there, so a click on one can mean
         # nothing else.
-        rect = self._selected_rect()
+        rect = self._selection_rect()
         if rect is not None:
             anchor = self._hit_test_handle(event.x, event.y)
             if anchor is not None:

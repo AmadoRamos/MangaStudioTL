@@ -104,6 +104,7 @@ def test_solo_se_dibujan_las_marcas_que_se_ven() -> None:
 
 
 def test_la_banda_sigue_al_desplazamiento() -> None:
+    """Lo que se dibuja es lo que se ve, no lo que se vio al abrir."""
     vista = _vista(desplazamiento=500.0)
 
     MarksView._render_all_marks(vista)
@@ -127,6 +128,7 @@ def test_la_seleccionada_se_dibuja_aunque_no_se_vea() -> None:
 
 
 def test_sin_marcas_visibles_no_se_dibuja_nada() -> None:
+    """El interruptor de «ocultar marcas» sigue mandando sobre todo."""
     vista = _vista(desplazamiento=0.0)
     vista._marks_visible = False
 

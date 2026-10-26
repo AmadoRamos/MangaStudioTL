@@ -13,7 +13,6 @@ from dataclasses import replace
 from typing import Callable
 
 from src.config import (
-    COLOR_BG,
     MARK_DEFAULT_COLOR,
     MARK_MIN_SIZE,
     MARK_SELECTED_FILL,
@@ -24,10 +23,9 @@ from src.config import (
 from src.utils.logger import get_logger
 from src.utils.marks_store import Mark, MarksStore
 from src.views.zoomed_canvas import (
-    HANDLE_SIZE,
     HANDLES,
+    Rect,
     ZoomedCanvas,
-    handle_centers,
     move_rect,
     resize_rect,
 )
@@ -67,7 +65,6 @@ class MarksCanvas(ZoomedCanvas):
         self._mark_ids: list[int] = []
         #: The dashed «this is what gets erased» box, on the selection only.
         self._pad_id: int | None = None
-        self._handle_ids: dict[str, int] = {}
         self._preview_id: int | None = None
         self._selected_mark_id: int | None = None
         self._hovered_mark_id: int | None = None
@@ -190,53 +187,22 @@ class MarksCanvas(ZoomedCanvas):
 
     # -------------------------------------------------------- handles
 
-    def _clear_handles(self) -> None:
-        for hid in self._handle_ids.values():
-            self._canvas.delete(hid)
-        self._handle_ids = {}
-
     def _selected_mark(self) -> Mark | None:
         mid = self._selected_mark_id
         if mid is None or not 0 <= mid < len(self._store):
             return None
         return self._store.marks[mid]
 
-    def _handle_centers(self, mark: Mark) -> dict[str, tuple[float, float]]:
-        x1, y1 = self.image_to_canvas(mark.x, mark.y)
-        x2, y2 = self.image_to_canvas(mark.x + mark.w, mark.y + mark.h)
-        return handle_centers(x1, y1, x2, y2)
+    def _selection_rect(self) -> Rect | None:
+        """La marca seleccionada, si las marcas se están viendo.
 
-    def _draw_handles(self) -> None:
-        """Eight grips on the selection — the affordance for resizing."""
-        mark = self._selected_mark()
-        if mark is None or not self._marks_visible:
-            return
-        half = HANDLE_SIZE / 2
-        for anchor, (cx, cy) in self._handle_centers(mark).items():
-            self._handle_ids[anchor] = self._canvas.create_rectangle(
-                cx - half, cy - half, cx + half, cy + half,
-                outline=SUCCESS_COLOR, fill=COLOR_BG, width=2,
-                tags=("handle", f"handle_{anchor}"),
-            )
-
-    def _hit_test_handle(self, cx: float, cy: float) -> str | None:
+        Con las marcas ocultas no hay nada que agarrar, y decirlo aquí
+        apaga de una vez los agarres, su hit-test y el arrastre.
+        """
         mark = self._selected_mark()
         if mark is None or not self._marks_visible:
             return None
-        # A little larger than the drawn grip, so it is not fiddly.
-        reach = HANDLE_SIZE
-        for anchor, (hx, hy) in self._handle_centers(mark).items():
-            if abs(cx - hx) <= reach and abs(cy - hy) <= reach:
-                return anchor
-        return None
-
-    def _inside_selection(self, cx: float, cy: float) -> bool:
-        mark = self._selected_mark()
-        if mark is None or not self._marks_visible:
-            return False
-        x1, y1 = self.image_to_canvas(mark.x, mark.y)
-        x2, y2 = self.image_to_canvas(mark.x + mark.w, mark.y + mark.h)
-        return x1 <= cx <= x2 and y1 <= cy <= y2
+        return (mark.x, mark.y, mark.w, mark.h)
 
     # ------------------------------------------------------- editing
 
@@ -353,21 +319,12 @@ class MarksCanvas(ZoomedCanvas):
             self._canvas.coords(self._mark_ids[mark_id], x1, y1, x2, y2)
         if self._pad_id is not None:
             self._canvas.coords(self._pad_id, *self._pad_coords(updated))
-        self._move_handles(updated)
+        self._move_handles((updated.x, updated.y, updated.w, updated.h))
         if self._on_geometry is not None:
             try:
                 self._on_geometry(mark_id, updated)
             except Exception as exc:
                 log.exception("Error en on_geometry: %s", exc)
-
-    def _move_handles(self, mark: Mark) -> None:
-        half = HANDLE_SIZE / 2
-        for anchor, (cx, cy) in self._handle_centers(mark).items():
-            hid = self._handle_ids.get(anchor)
-            if hid is not None:
-                self._canvas.coords(
-                    hid, cx - half, cy - half, cx + half, cy + half,
-                )
 
     def _end_transform(self, event: tk.Event) -> None:
         updated = self._apply_transform_drag(event)

@@ -25,7 +25,7 @@ from typing import Callable
 
 from PIL import Image, ImageTk
 
-from src.config import CANVAS_BG
+from src.config import CANVAS_BG, COLOR_BG, SUCCESS_COLOR
 from src.utils.logger import get_logger
 
 log = get_logger("zoomed_canvas")
@@ -168,6 +168,10 @@ class ZoomedCanvas(tk.Frame):
         self._img_h: int = 0
         self._canvas_scale_x: float = 1.0
         self._canvas_scale_y: float = 1.0
+
+        #: Los ocho agarres de la selección, por ancla. Vacío mientras no
+        #: haya nada seleccionado, que es el caso de la clase base.
+        self._handle_ids: dict[str, int] = {}
 
         self._needs_initial_fit: bool = False
         self._pan_active: bool = False
@@ -536,6 +540,82 @@ class ZoomedCanvas(tk.Frame):
             ix = max(0, min(ix, iw))
             iy = max(0, min(iy, ih))
         return ix, iy
+
+    # --- selection handles -------------------------------------------
+    #
+    # Los dos lienzos dibujan los mismos ocho agarres sobre lo que esté
+    # seleccionado, y los dos tenían su copia de estos cinco métodos:
+    # cambiar el alcance del hit-test o el color de un agarre había que
+    # hacerlo dos veces. Lo único que de verdad difiere es de dónde sale
+    # el rectángulo, y eso es `_selection_rect`.
+
+    def _selection_rect(self) -> Rect | None:
+        """Lo que está seleccionado, en píxeles de la imagen, o ``None``.
+
+        Devolver ``None`` es «no hay nada que agarrar», y con eso se
+        apagan los agarres, su hit-test y el arrastre: una subclase que
+        oculta las marcas no necesita repetir esa condición en cada uno
+        de los tres sitios, le basta con no dar rectángulo.
+        """
+        return None
+
+    def _handle_centers(self, rect: Rect) -> dict[str, tuple[float, float]]:
+        x, y, w, h = rect
+        x1, y1 = self.image_to_canvas(x, y)
+        x2, y2 = self.image_to_canvas(x + w, y + h)
+        return handle_centers(x1, y1, x2, y2)
+
+    def _clear_handles(self) -> None:
+        for hid in self._handle_ids.values():
+            self._canvas.delete(hid)
+        self._handle_ids = {}
+
+    def _draw_handles(self) -> None:
+        """Eight grips on the selection — the affordance for resizing."""
+        rect = self._selection_rect()
+        if rect is None:
+            return
+        half = HANDLE_SIZE / 2
+        for anchor, (cx, cy) in self._handle_centers(rect).items():
+            self._handle_ids[anchor] = self._canvas.create_rectangle(
+                cx - half, cy - half, cx + half, cy + half,
+                outline=SUCCESS_COLOR, fill=COLOR_BG, width=2,
+                tags=("handle", f"handle_{anchor}"),
+            )
+
+    def _move_handles(self, rect: Rect) -> None:
+        """Follow a rectangle that is being dragged, without redrawing.
+
+        Toma el rectángulo en vez de pedirlo: mientras se arrastra, la
+        geometría que manda es la pendiente y no la que hay guardada.
+        """
+        half = HANDLE_SIZE / 2
+        for anchor, (cx, cy) in self._handle_centers(rect).items():
+            hid = self._handle_ids.get(anchor)
+            if hid is not None:
+                self._canvas.coords(
+                    hid, cx - half, cy - half, cx + half, cy + half,
+                )
+
+    def _hit_test_handle(self, cx: float, cy: float) -> str | None:
+        rect = self._selection_rect()
+        if rect is None:
+            return None
+        # A little larger than the drawn grip, so it is not fiddly.
+        reach = HANDLE_SIZE
+        for anchor, (hx, hy) in self._handle_centers(rect).items():
+            if abs(cx - hx) <= reach and abs(cy - hy) <= reach:
+                return anchor
+        return None
+
+    def _inside_selection(self, cx: float, cy: float) -> bool:
+        rect = self._selection_rect()
+        if rect is None:
+            return False
+        x, y, w, h = rect
+        x1, y1 = self.image_to_canvas(x, y)
+        x2, y2 = self.image_to_canvas(x + w, y + h)
+        return x1 <= cx <= x2 and y1 <= cy <= y2
 
     # --- pan ---------------------------------------------------------
 
