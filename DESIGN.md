@@ -259,6 +259,7 @@ Everything in `theme.py`. Build with these; do not instantiate a raw
 | `alert(master, title, message, level=)` | says something and waits for the acknowledgement |
 | `confirm(master, title, message, confirm_label=)` | asks; `True` only for the confirming button |
 | `confirm_download(master, pair)` | the one question before a ~300 MB language-pair download; both steps that offer it ask it the same way |
+| `ModalWindow(master, title, width=, dismissable=)` | the shell every modal window is built on — see below |
 
 `alert` and `confirm` are the **same modal**, differing by one button —
 see §8. Never `tkinter.messagebox`: it draws the operating system's own
@@ -270,6 +271,30 @@ paint a dialog on.
 `toolbar.py` holds only those two. Its old button factories
 (`make_button`, `make_color_swatch`, `ToolbarBar`…) predate this design
 system and have been deleted — `theme.py` is the only vocabulary.
+
+### Modal windows
+
+A window of its own — the export confirmation, its progress window, the
+profile manager — subclasses `theme.ModalWindow` instead of
+`tk.Toplevel`. The shell is what every one of them needs and none of
+them should restate: the 2 px ink border of §1, `transient` on the main
+window, no resizing, the X and `<Escape>` agreeing with each other,
+centring over the top third, the input grab, and a `_close()` whose
+`grab_release` tolerates a window that is already gone.
+
+Three things are the subclass's own, so they are parameters rather than
+assumptions:
+
+| Where | What it says |
+| --- | --- |
+| `width=` | `DIALOG_WIDTH` (460) unless the content is not a paragraph — the profile manager is 640, because it is two panes |
+| `dismissable=False` | there is work behind the window that cannot stop halfway, so the X does nothing and `<Escape>` is not bound |
+| `show(wait=, focus=)` | `wait=False` for a window the application keeps driving while it works; `focus=True` where a keypress is the expected answer |
+
+The subclass builds its content and ends its `__init__` with
+`show()` — everything before that line only draws. A modal that asks
+something overrides `_dismiss()`: leaving without answering is «no»,
+never «yes», or a confirmation becomes a trap.
 
 ---
 

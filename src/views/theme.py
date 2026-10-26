@@ -56,9 +56,10 @@ __all__ = [
     "button", "restyle_button", "set_icon", "set_icon_color", "set_enabled",
     "SegmentedBar", "SEGMENT_CHARS",
     "Meter", "DashedZone", "TopBar",
-    "swatch", "tag", "card", "field_label", "entry", "text_area",
-    "option_menu", "slider", "checkbox",
-    "alert", "confirm", "center_on", "DIALOG_WIDTH",
+    "swatch", "tag", "card", "field_label", "path_label", "entry",
+    "text_area", "option_menu", "slider", "checkbox",
+    "alert", "confirm", "confirm_download", "center_on",
+    "ModalWindow", "DIALOG_WIDTH",
 ]
 
 # Font stacks. Archivo is the mockups' typeface; the rest are the
@@ -1001,7 +1002,84 @@ def center_on(window: tk.Toplevel, master: tk.Misc, width: int) -> None:
     window.geometry(f"{width}x{height}+{max(0, x)}+{max(0, y)}")
 
 
-class _MessageDialog(tk.Toplevel):
+class ModalWindow(tk.Toplevel):
+    """El armazón que comparten todos los modales de la aplicación.
+
+    Lo que hacía cada uno por su cuenta: borde ink de 2 px (§1 lo pide
+    para un canto estructural), ventana no redimensionable atada a la
+    principal, la cruz y el Escape de acuerdo entre sí, centrado sobre
+    el tercio superior y el agarre del teclado. Estaba escrito cuatro
+    veces, `_close` incluido, así que cambiar el armazón —un canto, un
+    atajo, quién se queda el foco— pedía acordarse de cuatro sitios.
+
+    La subclase monta su contenido y acaba su ``__init__`` llamando a
+    :meth:`show`, que es lo que bloquea: lo que va antes solo dibuja.
+    """
+
+    def __init__(
+        self,
+        master: tk.Misc,
+        title: str,
+        *,
+        width: int = DIALOG_WIDTH,
+        dismissable: bool = True,
+    ) -> None:
+        super().__init__(master, bg=COLOR_BG)
+        #: Casi siempre el ancho de los mockups. El gestor de perfiles es
+        #: más ancho porque son dos paneles y no un párrafo.
+        self._modal_width = width
+        self.title(title)
+        self.transient(master.winfo_toplevel())
+        self.resizable(False, False)
+        self.configure(
+            highlightthickness=2,
+            highlightbackground=COLOR_TEXT, highlightcolor=COLOR_TEXT,
+        )
+        if dismissable:
+            self.protocol("WM_DELETE_WINDOW", self._dismiss)
+            self.bind("<Escape>", lambda _e: self._dismiss())
+        else:
+            # Hay una operación detrás que no sabe pararse a mitad, y una
+            # ventana que se va sin detenerla mentiría.
+            self.protocol("WM_DELETE_WINDOW", lambda: None)
+
+    def show(self, *, wait: bool = True, focus: bool = False) -> None:
+        """Centrar, agarrar la entrada y —si se espera— bloquear aquí.
+
+        ``wait=False`` es para una ventana que la aplicación sigue
+        tocando mientras trabaja: bloquear en su propio ``__init__``
+        dejaría el trabajo sin empezar.
+        """
+        center_on(self, self.master, self._modal_width)
+        self.grab_set()
+        if focus:
+            self.focus_set()
+        if wait:
+            self.wait_window(self)
+
+    def _dismiss(self) -> None:
+        """Lo que contestan la cruz y el Escape. Por defecto, cerrar.
+
+        Un modal que pregunta algo lo redefine: irse sin contestar es
+        «no», nunca «sí», o una confirmación sería una trampa.
+        """
+        self._close()
+
+    def _close(self) -> None:
+        """Soltar el agarre y destruir la ventana.
+
+        El ``grab_release`` va en un ``try``: si la ventana ya se fue
+        —doble clic en «Cancelar», o un cierre durante el apagado— Tk
+        lanza, y cerrar dos veces no es un error que haya que contar.
+        """
+        try:
+            self.grab_release()
+        except Exception:
+            pass
+        self.destroy()
+
+
+class _MessageDialog(ModalWindow):
     """One modal, whether it asks or only tells.
 
     An alert is this with the cancel button left out, which is why there
@@ -1020,15 +1098,8 @@ class _MessageDialog(tk.Toplevel):
         confirm_label: str,
         cancel_label: str | None,
     ) -> None:
-        super().__init__(master, bg=COLOR_BG)
+        super().__init__(master, title)
         self.result = False
-        self.title(title)
-        self.transient(master.winfo_toplevel())
-        self.resizable(False, False)
-        self.configure(
-            highlightthickness=2,
-            highlightbackground=COLOR_TEXT, highlightcolor=COLOR_TEXT,
-        )
 
         header = tk.Frame(self, bg=COLOR_BG, padx=18, pady=16)
         header.pack(fill=tk.X)
@@ -1055,15 +1126,8 @@ class _MessageDialog(tk.Toplevel):
                 variant="outline", padx=16, pady=10,
             ).pack(side=tk.LEFT, padx=(9, 0))
 
-        # Closing the window is «no», never «yes» — the X and Escape have
-        # to agree with the cancel button or a confirmation is a trap.
-        self.protocol("WM_DELETE_WINDOW", self._cancel)
-        self.bind("<Escape>", lambda _e: self._cancel())
         self.bind("<Return>", lambda _e: self._confirm())
-        center_on(self, master, DIALOG_WIDTH)
-        self.grab_set()
-        self.focus_set()
-        self.wait_window(self)
+        self.show(focus=True)
 
     def _confirm(self) -> None:
         self.result = True
@@ -1073,12 +1137,10 @@ class _MessageDialog(tk.Toplevel):
         self.result = False
         self._close()
 
-    def _close(self) -> None:
-        try:
-            self.grab_release()
-        except Exception:
-            pass
-        self.destroy()
+    def _dismiss(self) -> None:
+        # Closing the window is «no», never «yes» — the X and Escape have
+        # to agree with the cancel button or a confirmation is a trap.
+        self._cancel()
 
 
 def alert(

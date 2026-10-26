@@ -22,10 +22,9 @@ from src.config import (
     NEUTRAL_600,
 )
 from src.views import theme
-from src.views.theme import DIALOG_WIDTH
 
 
-class ExportDialog(tk.Toplevel):
+class ExportDialog(theme.ModalWindow):
     """Modal export confirmation. Blocks until closed.
 
     ``result`` is ``None`` when cancelled, otherwise
@@ -42,15 +41,8 @@ class ExportDialog(tk.Toplevel):
         skipped: int,
         estimated_mb: float,
     ) -> None:
-        super().__init__(master, bg=COLOR_BG)
+        super().__init__(master, "Finalizar y exportar")
         self.result: tuple[Path, bool] | None = None
-        self.title("Finalizar y exportar")
-        self.transient(master.winfo_toplevel())
-        self.resizable(False, False)
-        self.configure(
-            highlightthickness=2,
-            highlightbackground=COLOR_TEXT, highlightcolor=COLOR_TEXT,
-        )
 
         self._dir_var = tk.StringVar(value=str(initial_dir))
         self._open_var = tk.BooleanVar(value=True)
@@ -59,12 +51,8 @@ class ExportDialog(tk.Toplevel):
         self._build_body(pages, sections, skipped, estimated_mb)
         self._build_actions(pages)
 
-        self.protocol("WM_DELETE_WINDOW", self._cancel)
-        self.bind("<Escape>", lambda _e: self._cancel())
         self.bind("<Return>", lambda _e: self._confirm())
-        theme.center_on(self, master, DIALOG_WIDTH)
-        self.grab_set()
-        self.wait_window(self)
+        self.show()
 
     # ------------------------------------------------------------------
 
@@ -154,15 +142,12 @@ class ExportDialog(tk.Toplevel):
         self.result = None
         self._close()
 
-    def _close(self) -> None:
-        try:
-            self.grab_release()
-        except Exception:
-            pass
-        self.destroy()
+    def _dismiss(self) -> None:
+        # Irse por la cruz o con Escape es cancelar, no exportar.
+        self._cancel()
 
 
-class ExportProgress(tk.Toplevel):
+class ExportProgress(theme.ModalWindow):
     """En qué página va la exportación, cuánto lleva y cuánto le queda.
 
     ``step`` tiene la firma de ``on_progress`` del exportador, así que se
@@ -174,17 +159,9 @@ class ExportProgress(tk.Toplevel):
     """
 
     def __init__(self, master: tk.Misc, total: int) -> None:
-        super().__init__(master, bg=COLOR_BG)
-        self.title("Exportando")
-        self.transient(master.winfo_toplevel())
-        self.resizable(False, False)
-        self.configure(
-            highlightthickness=2,
-            highlightbackground=COLOR_TEXT, highlightcolor=COLOR_TEXT,
-        )
-        # La cruz no cancela nada: el exportador no sabe parar a mitad, y
-        # una ventana que se va sin detenerlo mentiría.
-        self.protocol("WM_DELETE_WINDOW", lambda: None)
+        # Sin cruz ni Escape: el exportador no sabe parar a mitad, y una
+        # ventana que se va sin detenerlo mentiría.
+        super().__init__(master, "Exportando", dismissable=False)
 
         header = tk.Frame(self, bg=COLOR_BG, padx=18, pady=16)
         header.pack(fill=tk.X)
@@ -206,8 +183,9 @@ class ExportProgress(tk.Toplevel):
 
         self._started = time.monotonic()
         self.step(0, total, Path(""))
-        theme.center_on(self, master, DIALOG_WIDTH)
-        self.grab_set()
+        # Sin esperar aquí: la exportación empieza en cuanto esto vuelve,
+        # y es ella la que va llamando a `step`.
+        self.show(wait=False)
 
     def step(self, done: int, total: int, path: Path) -> None:
         """*done* páginas terminadas; *path* es la que empieza ahora."""
@@ -239,8 +217,5 @@ class ExportProgress(tk.Toplevel):
         return f"queda ~{int(left // 60)} min {int(left % 60):02d} s"
 
     def close(self) -> None:
-        try:
-            self.grab_release()
-        except Exception:
-            pass
-        self.destroy()
+        """Lo mismo que `_close`, con el nombre que usa quien exporta."""
+        self._close()

@@ -41,7 +41,7 @@ DIALOG_WIDTH = 640
 LIST_WIDTH = 230
 
 
-class ProfileDialog(tk.Toplevel):
+class ProfileDialog(theme.ModalWindow):
     """Modal de administración de perfiles. Bloquea hasta cerrarse.
 
     No devuelve nada: lo que hace ya está hecho cuando se cierra.
@@ -59,7 +59,7 @@ class ProfileDialog(tk.Toplevel):
         on_change: Callable[[tuple[TextProfile, ...]], None],
         on_rename: Callable[[str, str], None],
     ) -> None:
-        super().__init__(master, bg=COLOR_BG)
+        super().__init__(master, "Gestor de perfiles", width=DIALOG_WIDTH)
         self._profiles = profiles
         self._usage_of = usage_of
         self._font_options = font_options
@@ -68,14 +68,6 @@ class ProfileDialog(tk.Toplevel):
         self._selected: str | None = profiles[0].name if profiles else None
         #: La fila de color del contorno, que solo está cuando hay borde.
         self._stroke_colors: tk.Frame | None = None
-
-        self.title("Gestor de perfiles")
-        self.transient(master.winfo_toplevel())
-        self.resizable(False, False)
-        self.configure(
-            highlightthickness=2,
-            highlightbackground=COLOR_TEXT, highlightcolor=COLOR_TEXT,
-        )
 
         self._build_header()
         panes = tk.Frame(self, bg=COLOR_BG, padx=18, pady=16)
@@ -92,11 +84,7 @@ class ProfileDialog(tk.Toplevel):
 
         self._refresh()
 
-        self.protocol("WM_DELETE_WINDOW", self._close)
-        self.bind("<Escape>", lambda _e: self._close())
-        theme.center_on(self, master, DIALOG_WIDTH)
-        self.grab_set()
-        self.wait_window(self)
+        self.show()
 
     # ------------------------------------------------------------------
     # Shell
@@ -126,13 +114,6 @@ class ProfileDialog(tk.Toplevel):
         theme.body(
             actions, "Los cambios se guardan solos.", size=9, fg=NEUTRAL_600,
         ).pack(side=tk.LEFT, padx=(12, 0))
-
-    def _close(self) -> None:
-        try:
-            self.grab_release()
-        except Exception:
-            pass
-        self.destroy()
 
     # ------------------------------------------------------------------
     # State
