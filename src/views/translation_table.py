@@ -126,6 +126,7 @@ class TranslationTable(tk.Frame):
         self._tree.bind("<Double-1>", self._on_double_click)
         self._tree.bind("<Return>", lambda _e: self._edit_selected("trans"))
         self._tree.bind("<Delete>", lambda _e: self._delete_selected())
+        self._tree.bind("<F5>", lambda _e: self.retranslate_selected())
 
     # ------------------------------------------------------------------
     # Detail panel

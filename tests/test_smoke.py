@@ -762,3 +762,54 @@ def test_overlapping_crops_do_not_undo_each_other() -> None:
 
     assert out.getpixel((110, 110)) == (255, 255, 255)
     assert out.getpixel((180, 110)) == (255, 255, 255)
+
+
+def test_row_retranslate_is_reachable(root: tk.Tk) -> None:
+    """Retraducir una fila tiene disparador, como borrarla.
+
+    El método existía desde el principio y nadie lo llamaba: la tabla
+    sabía retraducir y la tecla no estaba puesta, así que la función
+    estaba escrita y apagada. El test mira las dos mitades — la tecla y
+    el camino hasta el callback — porque cualquiera de ellas sola vuelve
+    a dejar la función inalcanzable.
+    """
+    from src.views import theme
+    from src.views.translation_table import TranslationTable
+
+    theme.init(root)
+
+    class Ocr:
+        text = "uno"
+        confidence = 90
+
+    class Store:
+        marks = [Mark(x=0, y=0, w=9, h=9, color="#ffcc00")]
+
+        def __len__(self) -> int:
+            return 1
+
+        def get_ocr(self, _i: int):
+            return Ocr()
+
+        def get_translation(self, _i: int):
+            return None
+
+    pedidas: list[tuple] = []
+    table = TranslationTable(
+        root,
+        on_translate_row=lambda *a: pedidas.append(a),
+        on_translation_edited=lambda *a: None,
+        on_translation_deleted=lambda *a: None,
+    )
+    table.set_stores([Store()])
+
+    assert "<Key-F5>" in table._tree.bind(), table._tree.bind()
+
+    table._tree.selection_set("0:0")
+    table.retranslate_selected()
+    assert pedidas == [(0, 0)], pedidas
+
+    # Sin fila seleccionada no se pide nada.
+    table._tree.selection_remove("0:0")
+    table.retranslate_selected()
+    assert pedidas == [(0, 0)], pedidas

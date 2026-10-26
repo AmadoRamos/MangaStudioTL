@@ -167,7 +167,8 @@ class OcrReviewView(tk.Frame):
         self._status.pack(side=tk.BOTTOM, fill=tk.X)
         self._status.set("Doble clic para editar una celda", "info")
         self._status.set_hint(
-            "Enter = guardar · Tab = siguiente celda · Supr = borrar traducción"
+            "Enter = guardar · Tab = siguiente celda · "
+            "F5 = retraducir fila · Supr = borrar traducción"
         )
         self._refresh_empty_state()
 
