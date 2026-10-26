@@ -373,7 +373,7 @@ Tres reglas que valen para los cuatro pasos:
 ├── run.bat                  Lanzador para Windows
 ├── VERSION                  La versión que leen el .spec y el instalador
 ├── requirements.txt         Lo que la aplicación importa
-├── requirements-dev.txt     pytest y pylint, clavados a una versión
+├── requirements-dev.txt     pytest, pylint y PyInstaller, clavados
 ├── build_exe.bat            PyInstaller + Inno Setup, las dos mitades
 ├── translator.spec          Receta de PyInstaller
 ├── installer.iss            Receta de Inno Setup
@@ -531,7 +531,7 @@ molesta»: son la diferencia entre la biblioteca de funciones que pylint
 supone y lo que esto es, una interfaz de Tkinter. Las versiones de
 `requirements-dev.txt` van clavadas y no con `>=`: una versión nueva de
 pylint estrena comprobaciones, y una comprobación nueva baja la nota de
-un código que no ha cambiado.
+un código que no ha cambiado. PyInstaller está ahí por lo mismo.
 
 ---
 
@@ -1118,7 +1118,9 @@ Produce un `.exe` autocontenido y, encima, un instalador de Windows.
   el `.exe` suelto no lo necesita)
 
 PyInstaller no está en `requirements.txt` a propósito —la aplicación no
-lo importa— y `build_exe.bat` lo instala solo si falta.
+lo importa—, sino en `requirements-dev.txt` y clavado, porque lo que
+sus hooks recogen de torch y tkinterdnd2 cambia entre versiones.
+`build_exe.bat` instala ese archivo solo si falta.
 
 ### Compilar
 
@@ -1128,7 +1130,11 @@ build_exe.bat
 
 Hace las dos mitades: PyInstaller genera `dist\Taller de Rotulacion\` e Inno
 Setup empaqueta eso en `output\TallerRotulacion_vX.Y.Z_Setup.exe`. La versión
-sale del archivo `VERSION`.
+sale del archivo `VERSION`. El nombre lo escribe
+un solo sitio, `APP_NAME` en el spec: el `.bat` lo lee de la carpeta que
+acaba de salir y se lo pasa al `.iss` como `/DAppBaseName`, así que
+renombrar la aplicación es cambiar esa línea y nada más. `VERSION` va a
+las propiedades del `.exe` y al nombre del instalador.
 
 > Los nombres de archivo van **sin tilde** a propósito, y el nombre que se
 > ve —barra de título, accesos directos, instalador— **con** ella. Un `.bat`

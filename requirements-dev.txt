@@ -9,3 +9,8 @@
 # que pase solo.
 pytest==9.1.1
 pylint==4.0.6
+# PyInstaller tiene el mismo problema y peor: los comentarios de
+# translator.spec explican que torch y tkinterdnd2 se dejan a sus hooks,
+# y lo que esos hooks recogen cambia de version en version. Un build que
+# se instala solo es un build que nadie eligio.
+pyinstaller==6.22.1

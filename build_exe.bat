@@ -15,11 +15,13 @@ if not exist "%PY%" (
     exit /b 1
 )
 
-REM --- PyInstaller no esta en requirements.txt: solo hace falta para esto ---
+REM --- PyInstaller no esta en requirements.txt: solo hace falta para esto.
+REM Se instala clavado desde requirements-dev.txt y no a pelo: ahi esta
+REM escrito por que la version importa. ---
 "%PY%" -m PyInstaller --version >nul 2>&1
 if errorlevel 1 (
-    echo [+] Instalando PyInstaller...
-    "%PY%" -m pip install pyinstaller
+    echo [+] Instalando herramientas de desarrollo...
+    "%PY%" -m pip install -r requirements-dev.txt
     if errorlevel 1 (
         echo ERROR: No se pudo instalar PyInstaller
         pause
@@ -47,6 +49,17 @@ if %errorlevel% neq 0 (
 echo.
 echo Generando instalador...
 
+REM El nombre de la app lo escribe un solo sitio, APP_NAME en el spec.
+REM Esta es la carpeta que PyInstaller acaba de crear, o sea, ese nombre
+REM ya resuelto: el .iss no tiene que repetirlo ni acertarlo.
+set "APP_NAME="
+for /d %%d in ("dist\*") do set "APP_NAME=%%~nxd"
+if not defined APP_NAME (
+    echo ERROR: El build no dejo ninguna carpeta en dist
+    pause
+    exit /b 1
+)
+
 set "ISCC_PATH="
 if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC_PATH=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
 if not defined ISCC_PATH if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISCC_PATH=%ProgramFiles%\Inno Setup 6\ISCC.exe"
@@ -65,7 +78,7 @@ if not defined ISCC_PATH (
     exit /b 1
 )
 
-"%ISCC_PATH%" /DAppVersion=%APP_VERSION% installer.iss
+"%ISCC_PATH%" /DAppVersion=%APP_VERSION% /D"AppBaseName=%APP_NAME%" installer.iss
 
 if %errorlevel% neq 0 (
     echo ERROR: Fallo al generar instalador

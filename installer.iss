@@ -1,8 +1,11 @@
 ﻿; Script de instalacion para Taller de Rotulacion
 ; Requiere: Inno Setup 6.1 o superior (usa CreateDownloadPage)
-; Compilar con: build_exe.bat  (o: iscc /DAppVersion=1.0.0 installer.iss)
+; Compilar con: build_exe.bat  (o: iscc /DAppVersion=1.0.0
+;               /D"AppBaseName=Taller de Rotulacion" installer.iss)
+; AppBaseName es el nombre sin tilde del .exe y de la carpeta de dist,
+; y lo pone quien compila porque el unico que lo decide es el spec.
 
-#define AppExeName "Taller de Rotulacion.exe"
+#define AppExeName AppBaseName + ".exe"
 ; Verificada el 2026-08-15 (50 MB). Si un dia da 404, la release vigente
 ; esta en https://github.com/UB-Mannheim/tesseract/releases/latest — el
 ; fallo no rompe la instalacion, solo deja el OCR sin instalar.
@@ -39,7 +42,7 @@ Name: "desktopicon"; Description: "Crear acceso directo en el escritorio"; Group
 Name: "tesseract"; Description: "Descargar e instalar Tesseract OCR (necesario para el paso 3, ~60 MB)"; GroupDescription: "Componentes adicionales:"
 
 [Files]
-Source: "dist\Taller de Rotulacion\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
+Source: "dist\{#AppBaseName}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 
 [Icons]
 Name: "{group}\Taller de Rotulación"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"

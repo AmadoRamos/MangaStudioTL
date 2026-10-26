@@ -8,6 +8,15 @@ descomprimiría entero en cada arranque.
 """
 
 from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.win32.versioninfo import (
+    FixedFileInfo,
+    StringFileInfo,
+    StringStruct,
+    StringTable,
+    VarFileInfo,
+    VarStruct,
+    VSVersionInfo,
+)
 
 # Sin tilde: da nombre al .exe y a la carpeta de dist, y esos dos los
 # manosean un .bat y un .iss. El nombre con tilde es el que se ve —barra
@@ -16,6 +25,30 @@ APP_NAME = "Taller de Rotulacion"
 
 with open("VERSION", "r", encoding="utf-8") as fh:
     version = fh.read().strip()
+
+# Lo que Windows ensena en las propiedades del archivo. Sin esto el .exe
+# sale sin version mientras el instalador si la lleva, y entonces no hay
+# forma de saber que version esta instalada mirando el programa.
+# PyInstaller acepta la estructura ya construida, asi que no hace falta
+# el archivo de texto arcano que pide `version=` normalmente.
+_nums = (tuple(int(p) for p in version.split(".")) + (0, 0, 0, 0))[:4]
+version_info = VSVersionInfo(
+    ffi=FixedFileInfo(filevers=_nums, prodvers=_nums),
+    kids=[
+        # 040a04b0: espanol de Espana en Unicode, como el instalador.
+        StringFileInfo([StringTable("040a04b0", [
+            StringStruct("CompanyName", "AmadoRamos"),
+            # El nombre sin tilde tambien aqui: es el mismo string que da
+            # nombre al .exe, y uno solo no se desincroniza del otro.
+            StringStruct("FileDescription", APP_NAME),
+            StringStruct("FileVersion", version),
+            StringStruct("ProductName", APP_NAME),
+            StringStruct("ProductVersion", version),
+            StringStruct("LegalCopyright", "Copyright 2026"),
+        ])]),
+        VarFileInfo([VarStruct("Translation", [0x040A, 1200])]),
+    ],
+)
 
 datas = []
 binaries = []
@@ -97,6 +130,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon="src/assets/logo.ico",
+    version=version_info,
 )
 
 coll = COLLECT(
