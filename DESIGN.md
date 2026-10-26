@@ -82,7 +82,7 @@ made yet, not a gap to fill:
 | `NEUTRAL_900` | the dark canvas, via `CANVAS_BG` |
 | `ACCENT_100/200` | tinted backgrounds — table selection, `accent` tag |
 | `ACCENT_600/700` | button hover / pressed on `primary`; error text |
-| `ACCENT_800` | text on a low-confidence row; the darkest mark colour |
+| `ACCENT_800` | text on a low-confidence row; the `accent` tag's text |
 
 **Never mix a neutral into an accent role, or the reverse.** A muted dot
 means "engine missing"; the red is spent on the card that says what to do

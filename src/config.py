@@ -63,14 +63,6 @@ SUCCESS_COLOR: str = COLOR_ACCENT
 SUPPORTED_EXTENSIONS: tuple[str, ...] = (".jpg", ".jpeg", ".png")
 
 MARK_DEFAULT_COLOR: str = COLOR_ACCENT
-MARK_COLORS: tuple[str, ...] = (
-    COLOR_ACCENT,
-    COLOR_TEXT,
-    "#1a4fd6",
-    "#0f8a4a",
-    ACCENT_800,
-    "#ffffff",
-)
 MARK_STROKE_WIDTH: int = 2
 MARK_SELECTED_STROKE_WIDTH: int = MARK_STROKE_WIDTH + 2
 # Selection reads as a heavier accent stroke, never a fill — the fill
