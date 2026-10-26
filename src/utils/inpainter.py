@@ -70,7 +70,7 @@ def resolve_model(name: str = INPAINT_MODEL) -> Path | None:
     if not path.exists():
         log.warning(
             "Modelo %r no encontrado en %s; se usara big-lama. "
-            "Generalo con: python tools/trace_manga_lama.py",
+            "Se genera desde el repo con tools/trace_manga_lama.py",
             name, path,
         )
         return None
@@ -614,9 +614,42 @@ def _paste_alpha(mask: Image.Image) -> Image.Image:
 
 
 def install_instructions() -> str:
+    """Que hacer cuando LaMa no responde, segun donde corre esto.
+
+    Empaquetada, torch y simple-lama ya vienen dentro: mandar a hacer
+    un `pip install` ahi no es solo inutil, es mentira, y tapa lo que
+    de verdad fallo, que casi siempre es la descarga del modelo.
+    """
+    if getattr(sys, "frozen", False):
+        return (
+            "El modelo de limpieza (~200 MB) se descarga la primera vez que se usa.\n"
+            "Comprueba la conexion a internet y vuelve a abrir el programa:\n"
+            "el motivo exacto esta en esta misma linea del log."
+        )
     return (
         "Instala las dependencias con:\n"
         "  pip install -r requirements.txt\n"
         "Esto instala torch (~500MB) y simple-lama-inpainting.\n"
-        "La primera ejecucion descargara el modelo LaMa (~150MB)."
+        "La primera ejecucion descargara el modelo LaMa (~200MB)."
+    )
+
+
+def models_hint(missing: Iterable[str]) -> str:
+    """Que decirle a quien le faltan los modelos alternativos.
+
+    Instalada, ``MODELS_DIR`` nace vacia y no hay repo donde generar
+    nada, asi que la receta con el script es correcta en desarrollo y
+    una pared en una instalacion, que es donde mas se lee: este texto
+    sale en el rail del paso 2 de toda instalacion recien hecha.
+    """
+    nombres = ", ".join(missing)
+    if getattr(sys, "frozen", False):
+        return (
+            f"No disponible: {nombres}. Se genera desde el repo y no "
+            "viene en el instalador; el modelo normal limpia igual, "
+            "solo reconstruye peor la trama."
+        )
+    return (
+        f"Falta descargar: {nombres}. Genéralos con "
+        "«python tools/trace_manga_lama.py»."
     )

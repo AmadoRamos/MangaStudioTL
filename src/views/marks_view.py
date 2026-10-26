@@ -53,6 +53,7 @@ from src.utils.inpainter import (
     has_clean,
     load_clean,
     marks_signature,
+    models_hint,
     resolve_model,
 )
 from src.utils.logger import get_logger
@@ -849,8 +850,7 @@ class MarksView(tk.Frame):
         ]
         theme.body(
             body,
-            f"Falta descargar: {', '.join(missing)}. Genéralos con "
-            "«python tools/trace_manga_lama.py»."
+            models_hint(missing)
             if missing else
             "«Manga» reconstruye la trama; el normal deja más limpios "
             "los globos de fondo liso.",

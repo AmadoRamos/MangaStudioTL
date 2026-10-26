@@ -21,8 +21,10 @@ from src.utils.inpainter import (
     clean_path,
     cluster_marks,
     find_clean,
+    install_instructions,
     load_clean,
     marks_signature,
+    models_hint,
     union_bbox,
 )
 from src.utils.marks_store import Mark, MarksStore, sidecar_path
@@ -233,3 +235,22 @@ def test_el_modelo_carga_aunque_no_haya_stderr(monkeypatch) -> None:
 
     assert Inpainter().is_available() is True
     assert escrito == ["descargado"]
+
+
+def test_los_mensajes_no_mandan_a_pip_en_una_instalacion(monkeypatch) -> None:
+    """Empaquetada no hay repo ni pip: los dos textos tienen que cambiar.
+
+    El de ``models_hint`` sale en el rail del paso 2 de toda instalacion
+    recien hecha, porque MODELS_DIR nace vacia: era una instruccion en
+    pantalla que nadie podia seguir.
+    """
+    assert "pip install" in install_instructions()
+    assert "trace_manga_lama" in models_hint(["manga"])
+
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+
+    assert "pip install" not in install_instructions()
+    assert "200 MB" in install_instructions()
+    assert "trace_manga_lama" not in models_hint(["manga"])
+    # Sigue diciendo cual falta: es la mitad util del mensaje.
+    assert "manga" in models_hint(["manga"])

@@ -37,6 +37,14 @@ DiskSpanning=no
 [Languages]
 Name: "spanish"; MessagesFile: "compiler:Default.isl"
 
+[Messages]
+; El instalador no trae el modelo de limpieza: son 200 MB que la app se
+; descarga sola la primera vez que se limpia una pagina. Decirlo en la
+; ultima pantalla sale mas barato que un usuario mirando una barra que
+; no avanza y dando por roto el paso 2. El de Tesseract ya se avisa en
+; su tarea, y ese si lo descarga el instalador.
+spanish.FinishedLabel=La instalación de [name] ha terminado.%n%nLa primera vez que limpies una página se descargará el modelo LaMa (~200 MB): tarda unos minutos y necesita conexión a internet. Después queda guardado y no se vuelve a descargar.
+
 [Tasks]
 Name: "desktopicon"; Description: "Crear acceso directo en el escritorio"; GroupDescription: "Accesos directos:"; Flags: unchecked
 Name: "tesseract"; Description: "Descargar e instalar Tesseract OCR (necesario para el paso 3, ~60 MB)"; GroupDescription: "Componentes adicionales:"
