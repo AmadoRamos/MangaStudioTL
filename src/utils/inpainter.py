@@ -9,8 +9,11 @@ the full image and gives LaMa enough context to fill in correctly.
 from __future__ import annotations
 
 import hashlib
+import io
 import os
+import sys
 import threading
+from contextlib import redirect_stderr
 from pathlib import Path
 from typing import Iterable
 
@@ -358,7 +361,15 @@ class Inpainter:
                 log.info("Modelo de inpainting alternativo: %s", alt.name)
             else:
                 os.environ.pop("LAMA_MODEL", None)
-            self._models[key] = SimpleLama()
+            # Empaquetada sin consola (``console=False`` en el spec)
+            # ``sys.stderr`` es None, y lo primero que hace simple-lama
+            # cuando el big-lama no está en cache es escribir ahí el
+            # aviso de descarga. El AttributeError se lo comería
+            # ``is_available``, que cachea «no disponible» para toda la
+            # sesión: una instalación nueva se queda sin limpieza y el
+            # log solo dice «'NoneType'». Con un sumidero, descarga.
+            with redirect_stderr(sys.stderr or io.StringIO()):
+                self._models[key] = SimpleLama()
             log.info("Modelo LaMa cargado")
             return self._models[key]
 

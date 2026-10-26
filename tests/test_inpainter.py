@@ -1,17 +1,19 @@
 """La geometría de la limpieza: qué se agrupa, qué se borra y qué caduca.
 
-Nada de esto toca LaMa. Son las decisiones que se toman *antes* de
+Nada de esto toca LaMa, y el ultimo lo carga con un doble. Son las decisiones que se toman *antes* de
 llamarlo, y son las que deciden si una página vuelve a pasar por el
 modelo o no — o sea, minutos de espera por capítulo.
 """
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from PIL import Image
 
 from src.config import INPAINT_PADDING_PX
+from src.utils import inpainter
 from src.utils.inpainter import (
     Inpainter,
     bboxes_overlap,
@@ -205,3 +207,29 @@ def test_la_mascara_no_se_sale_de_la_imagen() -> None:
         (100, 100), [_mark(10, 10, 20, 20, padding=40)], padding=0,
     )
     assert forzada.getbbox() == (10, 10, 31, 31)
+
+
+def test_el_modelo_carga_aunque_no_haya_stderr(monkeypatch) -> None:
+    """Sin consola, ``sys.stderr`` es None; el modelo tiene que cargar igual.
+
+    Lo primero que hace simple-lama cuando el big-lama no esta en cache
+    es escribir el aviso de descarga en stderr. Sin blindaje eso es un
+    AttributeError que ``is_available`` se come y cachea, asi que en el
+    .exe empaquetado la limpieza no arranca nunca y el log solo dice
+    «'NoneType'». Este es el unico test que llega al cargador.
+    """
+    escrito: list[str] = []
+
+    class _Lama:
+        """El doble escribe en stderr igual que el de verdad."""
+
+        def __init__(self) -> None:
+            sys.stderr.write("Downloading: big-lama.pt\n")
+            escrito.append("descargado")
+
+    monkeypatch.setattr(inpainter, "SimpleLama", _Lama)
+    monkeypatch.setattr(inpainter, "_LAMA_AVAILABLE", True)
+    monkeypatch.setattr(sys, "stderr", None)
+
+    assert Inpainter().is_available() is True
+    assert escrito == ["descargado"]
