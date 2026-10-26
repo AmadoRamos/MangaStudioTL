@@ -624,7 +624,7 @@ def install_instructions() -> str:
         return (
             "El modelo de limpieza (~200 MB) se descarga la primera vez que se usa.\n"
             "Comprueba la conexion a internet y vuelve a abrir el programa:\n"
-            "el motivo exacto esta en esta misma linea del log."
+            "el motivo exacto esta en la linea anterior del log."
         )
     return (
         "Instala las dependencias con:\n"
