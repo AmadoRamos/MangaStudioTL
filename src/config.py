@@ -162,6 +162,15 @@ SIDEBAR_WIDTH: int = 260
 SIDEBAR_BG: str = COLOR_SURFACE
 SIDEBAR_SECTION_PAD: int = 12
 SIDEBAR_VIEW_PAD: int = 12
+#: Dock derecho de herramientas del paso 2. Mas estrecho que el rail:
+#: lleva una tira de iconos, no una columna de etiquetas, y cada pixel
+#: que ocupa se lo quita a la pagina. Regla 2 + pad 12 + boton (icono 20
+#: + 8*2 de padx + 2 de borde) + pad 12.
+TOOLS_DOCK_WIDTH: int = 62
+#: Lo que tarda un tooltip en aparecer. Suficiente para que pasar el
+#: raton por encima de camino a otro sitio no llene la pantalla de
+#: carteles.
+TOOLTIP_DELAY_MS: int = 450
 RECENT_PATHS_FILE: str = ".last_folder"
 
 TRANSLATION_DIR_NAME: str = "traducciones"

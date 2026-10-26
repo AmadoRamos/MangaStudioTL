@@ -257,6 +257,29 @@ def body(
     )
 
 
+def path_label(
+    parent: tk.Misc,
+    text: str,
+    *,
+    bg: str | None = None,
+) -> tk.Label:
+    """Una ruta del disco, en la pila monoespaciada.
+
+    El único sitio donde la tipografía mono sale a la interfaz: una ruta
+    se lee carácter a carácter —y se compara con otra— mejor con los
+    anchos fijos. Va aquí y no en la vista porque §6 no quiere `tk.Label`
+    crudos fuera de este archivo.
+    """
+    return tk.Label(
+        parent,
+        text=text,
+        font=mono_font(9),
+        bg=bg if bg is not None else _bg_of(parent),
+        fg=COLOR_TEXT,
+        anchor=tk.W,
+    )
+
+
 def rule(
     parent: tk.Misc,
     *,

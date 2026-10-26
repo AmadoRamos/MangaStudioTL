@@ -72,6 +72,10 @@ log = get_logger("render_view")
 MB_PER_PAGE = 1.3
 #: Quiet time before what was typed in the rail reaches the page.
 TEXT_ECHO_MS = 220
+#: Cuerpo de las cifras del resumen final. Es el único número grande de
+#: la aplicación: la pantalla ya no tiene página que mirar, y lo que se
+#: lleva el ojo son los totales (DESIGN.md §3).
+STAT_VALUE_SIZE = 20
 
 
 class RenderView(tk.Frame):
@@ -1232,10 +1236,9 @@ class RenderView(tk.Frame):
             highlightbackground=COLOR_TEXT, highlightcolor=COLOR_TEXT,
         )
         path_row.pack(fill=tk.X, pady=(0, 18))
-        tk.Label(
-            path_row, text=str(out_dir), font=theme.mono_font(9),
-            bg=COLOR_SURFACE, fg=COLOR_TEXT, anchor=tk.W,
-        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        theme.path_label(path_row, str(out_dir)).pack(
+            side=tk.LEFT, fill=tk.X, expand=True,
+        )
         theme.button(
             path_row, "Abrir carpeta", lambda: self._open_folder(out_dir),
             variant="primary", padx=14, pady=9,
@@ -1287,10 +1290,9 @@ class RenderView(tk.Frame):
         theme.kicker(
             cell, label, fg=COLOR_ACCENT if accent else NEUTRAL_600,
         ).pack(fill=tk.X, pady=(0, 6))
-        tk.Label(
-            cell, text=value, font=theme.heading_font(20),
-            bg=COLOR_BG, fg=COLOR_ACCENT if accent else COLOR_TEXT,
-            anchor=tk.W,
+        theme.heading(
+            cell, value, size=STAT_VALUE_SIZE,
+            fg=COLOR_ACCENT if accent else COLOR_TEXT,
         ).pack(fill=tk.X)
 
     def _skipped_sections(self) -> list[str]:

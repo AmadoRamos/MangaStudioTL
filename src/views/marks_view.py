@@ -40,11 +40,14 @@ from src.config import (
     MARK_MIN_SIZE,
     MARK_PADDING_MAX,
     MARK_PADDING_MIN,
+    MARK_SELECTED_FILL,
+    MARK_SELECTED_STROKE_WIDTH,
     MARK_STROKE_WIDTH,
     NEUTRAL_500,
     NEUTRAL_600,
     NEUTRAL_700,
     SIDEBAR_BG,
+    TOOLS_DOCK_WIDTH,
     SIDEBAR_SECTION_PAD,
 )
 from src.utils import external_edit
@@ -82,12 +85,6 @@ LOG_LINES = 3
 #: guardado. Un ``stat`` por segundo no se nota, y el retoque aparece en
 #: el lienzo antes de que dé tiempo a volver la vista.
 EDIT_POLL_MS = 1000
-
-#: Right-hand tool dock. Narrower than the rail: it holds one column of
-#: buttons, and every pixel it takes comes off the page.
-# Una tira de iconos, no una columna de etiquetas: regla 2 + pad 12 +
-# botón (icono 20 + 8·2 de padx + 2 de borde) + pad 12. Ajustable a ojo.
-TOOLS_DOCK_WIDTH = 62
 
 # Los dos conmutadores del dock dicen lo que hacen desde el tooltip, que
 # sin etiqueta es lo único que queda. Aquí y no dentro del método porque
@@ -1795,7 +1792,10 @@ class MarksView(tk.Frame):
             for mark_id, mark in enumerate(self._stores[img_idx]):
                 is_selected = self._selected == (img_idx, mark_id)
                 outline = COLOR_ACCENT if is_selected else mark.color
-                width = MARK_STROKE_WIDTH + (2 if is_selected else 0)
+                width = (
+                    MARK_SELECTED_STROKE_WIDTH if is_selected
+                    else MARK_STROKE_WIDTH
+                )
                 x1, y1 = self._image_to_strip(img_idx, mark.x, mark.y)
                 x2, y2 = self._image_to_strip(
                     img_idx, mark.x + mark.w, mark.y + mark.h,
@@ -1822,7 +1822,8 @@ class MarksView(tk.Frame):
                     )
                 rid = self._canvas.create_rectangle(
                     x1, y1, x2, y2,
-                    outline=outline, width=width, fill="",
+                    outline=outline, width=width,
+                    fill=MARK_SELECTED_FILL if is_selected else "",
                     tags=("mark", f"img_{img_idx}", f"mark_{mark_id}"),
                 )
                 self._mark_ids_by_image[img_idx].append(rid)

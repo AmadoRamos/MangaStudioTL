@@ -16,13 +16,13 @@ from src.config import (
     ERROR_COLOR,
     COLOR_TEXT,
     NEUTRAL_600,
+    TOOLTIP_DELAY_MS,
 )
 # theme importa este módulo, pero siempre dentro de una función, así que
 # el ciclo no se cierra al cargar. La fuente se pide en el momento de
 # crear el widget porque la familia no se resuelve hasta theme.init().
 from src.views import theme
 
-TOOLTIP_DELAY_MS: int = 450
 # Paper-on-ink: the tooltip is the system's colours turned around, so it
 # reads as a layer above the surface instead of a patch of it.
 TOOLTIP_BG: str = COLOR_TEXT

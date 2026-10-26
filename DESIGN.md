@@ -138,6 +138,7 @@ is built.** It also themes the ttk widgets (§9).
 | `heading_font(8)` | 8 bold | kickers, tags, segmented-bar labels, table headings |
 | `heading_font(9–10)` | 9–10 bold | buttons, step labels |
 | `heading_font(17)` | 17 bold | a screen's heading — one per screen |
+| `heading_font(20)` | 20 bold | the final summary's figures, via `STAT_VALUE_SIZE` |
 | `body_font(8–9)` | 8–9 | hints, consequence lines, engine status |
 | `body_font(10)` | 10 | body text, table rows, inputs |
 
@@ -155,7 +156,7 @@ if you find yourself typing one of these into a view, use the constant.
 | --- | --- | --- |
 | Window | 1400 × 850, min 1000 × 640 | `WINDOW_*` |
 | Left rail | 260 px, fixed | `SIDEBAR_WIDTH` |
-| Right tool dock (step 2) | 186 px, fixed | `TOOLS_DOCK_WIDTH` |
+| Right tool dock (step 2) | 62 px, fixed | `TOOLS_DOCK_WIDTH` |
 | Top bar | 42 px + 2 px rule | `theme.TopBar(height=…)` |
 | Footer status bar | 2 px rule + one padded line | `toolbar.StatusBar` |
 | Rail section padding | 12 px | `SIDEBAR_SECTION_PAD` |
@@ -229,6 +230,7 @@ Everything in `theme.py`. Build with these; do not instantiate a raw
 | `heading(parent, text)` | the screen's own title, 17 bold |
 | `body(parent, text, size=, fg=, wrap=)` | everything else |
 | `field_label(parent, text)` | the label above an input, 9 |
+| `path_label(parent, text)` | a filesystem path, in the mono stack |
 | `rule(parent, thickness=, color=, vertical=)` | a structural line |
 
 ### Controls
@@ -256,6 +258,7 @@ Everything in `theme.py`. Build with these; do not instantiate a raw
 | `Tooltip` (in `toolbar.py`) | 450 ms delay; `button(tooltip=…)` wires it for you |
 | `alert(master, title, message, level=)` | says something and waits for the acknowledgement |
 | `confirm(master, title, message, confirm_label=)` | asks; `True` only for the confirming button |
+| `confirm_download(master, pair)` | the one question before a ~300 MB language-pair download; both steps that offer it ask it the same way |
 
 `alert` and `confirm` are the **same modal**, differing by one button —
 see §8. Never `tkinter.messagebox`: it draws the operating system's own
