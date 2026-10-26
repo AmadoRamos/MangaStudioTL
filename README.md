@@ -1155,8 +1155,8 @@ Medido en 1.0.0 (Windows 11, Python 3.13.5, PyInstaller 6.22):
 |---|---|
 | PyInstaller | ~3 min |
 | Inno Setup | ~2 min |
-| `dist\` | 771 MB |
-| Instalador | **171 MB** (`lzma2` + compresión sólida lo dejan al 22 %) |
+| `dist\` | 794 MB |
+| Instalador | **184 MB** (`lzma2` + compresión sólida lo dejan al 23 %) |
 
 El grueso no es la aplicación. En `dist\`: `torch` 361 MB y `cv2` 98 MB
 (los arrastra `simple-lama-inpainting`), `spacy` 77 MB y `ctranslate2`
@@ -1168,7 +1168,7 @@ que ejecutando desde el código.
 
 ### Decisiones del `.spec`
 
-- **onedir, no onefile.** Un onefile de 1,3 GB se descomprimiría entero
+- **onedir, no onefile.** Un onefile de 800 MB se descomprimiría entero
   en cada arranque.
 - **Sin UPX.** Sobre las DLLs de torch tarda muchísimo y rompe algunas.
 - **`torch` y `tkinterdnd2` no pasan por `collect_all`**, aunque los

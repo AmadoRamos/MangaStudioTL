@@ -29,8 +29,9 @@ WizardStyle=modern
 PrivilegesRequired=lowest
 UninstallFilesDir={app}
 SetupIconFile=src\assets\logo.ico
-; El bundle ronda 1,3 GB antes de comprimir; sin esto el compilador se
-; queda sin espacio de direcciones en el paso de compresion solida.
+; El bundle ronda 800 MB antes de comprimir (794 medidos en 1.0.0, con
+; torch y sus DLLs dentro); sin esto el compilador se queda sin espacio
+; de direcciones en el paso de compresion solida.
 LZMAUseSeparateProcess=yes
 DiskSpanning=no
 
